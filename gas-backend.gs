@@ -1,0 +1,683 @@
+/**
+ * สายรหัส (Code Line) - Google Apps Script Backend
+ * รองรับ CORS 100%
+ */
+
+// ============ CONFIG ============
+const TABS = {
+  PAIRS: 'pairs',
+  SENIORS: 'seniors',
+  MESSAGES: 'messages',
+  CLUES: 'clues'  // ✅ เพิ่มสำหรับกระดานคำใบ้
+};
+
+const COL = {
+  PAIRS: { pair_key: 1, y2_id: 2, y1_id: 3, reveal_at: 4, status: 5, picked_at: 6 },
+  SENIORS: { y2_id: 1, name: 2, faculty: 3, max_picks: 4, current_picks: 5, ig: 6, line: 7, imageUrl: 8, pairKey: 9 },
+  MESSAGES: { id: 1, pair_key: 2, from_id: 3, content: 4, type: 5, sent_at: 6, read_at: 7 }
+};
+
+const COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E8BAFF', '#FFB3D9', '#C9E4FF'];
+
+// ============ CORS ============
+function createCorsResponse(data) {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <script>
+          window.parent.postMessage(${JSON.stringify(data)}, '*');
+        </script>
+      </head>
+      <body>
+        <pre>${JSON.stringify(data, null, 2)}</pre>
+      </body>
+    </html>
+  `;
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('API Response')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function createSimpleResponse(data) {
+  const output = ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+  return output;
+}
+
+function doGet(e) {
+  try {
+    const params = e.parameter || {};
+    const action = params.action || 'checkNetwork';
+    const callback = params.callback || 'callback';
+    
+    let result;
+    switch (action) {
+      case 'verifyStudentId':
+        result = handleVerifyStudentId(params.student_id);
+        break;
+      case 'getPairByKey':
+        result = handleGetPairByKey(params.pair_key);
+        break;
+      case 'getAvailableJuniors':
+        result = handleGetAvailableJuniors();
+        break;
+      case 'getCountdown':
+        result = handleGetCountdown(params.pair_key);
+        break;
+      case 'checkNetwork':
+        result = { ok: true };
+        break;
+      default:
+        result = { ok: false, error: 'Unknown action: ' + action };
+    }
+    
+    const jsonp = `${callback}(${JSON.stringify(result)})`;
+    return ContentService
+      .createTextOutput(jsonp)
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    
+  } catch (err) {
+    console.error('doGet error:', err);
+    const jsonp = `callback(${JSON.stringify({ ok: false, error: err.toString() })})`;
+    return ContentService
+      .createTextOutput(jsonp)
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+}
+
+// ============ doPost (สำหรับ POST request) ============
+function doPost(e) {
+  try {
+    let payload;
+    if (e.postData && e.postData.contents) {
+      payload = JSON.parse(e.postData.contents);
+    } else if (e.parameter) {
+      payload = e.parameter;
+    } else {
+      payload = {};
+    }
+
+    const action = payload.action;
+    let result;
+
+    switch (action) {
+      case 'verifyStudentId':
+        result = handleVerifyStudentId(payload.student_id);
+        break;
+      case 'getPairByKey':
+        result = handleGetPairByKey(payload.pair_key);
+        break;
+      case 'getAvailableJuniors':
+        result = handleGetAvailableJuniors();
+        break;
+      case 'pickJunior':
+        result = handlePickJunior(payload.y2_id, payload.y1_id);
+        break;
+      case 'sendMessage':
+        result = handleSendMessage(payload.pair_key, payload.from_id, payload.content, payload.type);
+        break;
+      case 'getThread':
+        result = handleGetThread(payload.pair_key);
+        break;
+      case 'getCountdown':
+        result = handleGetCountdown(payload.pair_key);
+        break;
+      case 'checkNetwork':
+        result = { ok: true };
+        break;
+      case 'getMentors':
+        result = handleGetMentors();
+        break;
+      case 'getProfile':
+        result = handleGetProfile(payload.student_id);
+        break;
+      case 'updateProfile':
+        result = handleUpdateProfile(payload.student_id, payload.profile);
+        break;
+      case 'addClue':
+        result = handleAddClue(payload.author_id, payload.content);
+        break;
+      case 'getClues':
+        result = handleGetClues();
+        break;
+      case 'deleteClue':
+        result = handleDeleteClue(payload.clue_id, payload.author_id);
+        break;
+      default:
+        result = { ok: false, error: 'Unknown action: ' + action };
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error('doPost error:', err);
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ============ UTILITIES ============
+function parseStudentId(id) {
+  const s = String(id).trim().replace(/\D/g, '');
+  if (s.length === 11) {
+    return {
+      year: s.slice(0, 2),
+      core: s.slice(2, 8),
+      suffix: s.slice(8, 11),
+      pairKey: s.slice(8, 11),
+      role: s.startsWith('68') ? 'Y2' : s.startsWith('69') ? 'Y1' : null,
+      full: s
+    };
+  }
+  if (s.length === 13) {
+    return {
+      year: s.slice(0, 2),
+      core: s.slice(2, 8),
+      variable: s.slice(8, 10),
+      suffix: s.slice(10, 13),
+      pairKey: s.slice(10, 13),
+      role: s.startsWith('68') ? 'Y2' : s.startsWith('69') ? 'Y1' : null,
+      full: s
+    };
+  }
+  return null;
+}
+
+function getSheet(tabName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(tabName);
+  if (!sheet) {
+    sheet = ss.insertSheet(tabName);
+    const headers = {
+      [TABS.PAIRS]: [['pair_key', 'y2_id', 'y1_id', 'reveal_at', 'status', 'picked_at']],
+      [TABS.SENIORS]: [['y2_id', 'name', 'faculty', 'max_picks', 'current_picks', 'ig', 'line', 'imageUrl', 'pairKey']],
+      [TABS.MESSAGES]: [['id', 'pair_key', 'from_id', 'content', 'type', 'sent_at', 'read_at']],
+      [TABS.CLUES]: [['id', 'authorId', 'content', 'createdAt', 'top', 'left', 'color', 'rotation']]
+    };
+    if (headers[tabName]) {
+      sheet.getRange(1, 1, 1, headers[tabName][0].length).setValues(headers[tabName]);
+    }
+  }
+  return sheet;
+}
+
+function getDataRows(tabName) {
+  const sheet = getSheet(tabName);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+}
+
+function findRow(tabName, colIndex, value) {
+  const rows = getDataRows(tabName);
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][colIndex - 1]).trim() === String(value).trim()) {
+      return { rowIndex: i + 2, data: rows[i] };
+    }
+  }
+  return null;
+}
+
+function appendRow(tabName, values) {
+  const sheet = getSheet(tabName);
+  sheet.appendRow(values);
+}
+
+function updateRow(tabName, rowIndex, values) {
+  const sheet = getSheet(tabName);
+  sheet.getRange(rowIndex, 1, 1, values.length).setValues([values]);
+}
+
+// ============ HANDLERS ============
+function handleVerifyStudentId(studentId) {
+  const parsed = parseStudentId(studentId);
+  if (!parsed || !parsed.role) {
+    return { ok: false, error: 'รหัสนักศึกษาไม่ถูกต้อง (ต้อง 11 หรือ 13 หลัก เริ่มต้น 68 หรือ 69)' };
+  }
+
+  const pairs = getDataRows(TABS.PAIRS);
+  for (const row of pairs) {
+    const y2 = String(row[COL.PAIRS.y2_id - 1]).trim();
+    const y1 = String(row[COL.PAIRS.y1_id - 1]).trim();
+    if (y2 === parsed.full || y1 === parsed.full) {
+      return {
+        ok: true,
+        pair: {
+          pair_key: row[COL.PAIRS.pair_key - 1],
+          y2_id: y2,
+          y1_id: y1,
+          reveal_at: row[COL.PAIRS.reveal_at - 1],
+          status: row[COL.PAIRS.status - 1]
+        }
+      };
+    }
+  }
+
+  if (parsed.role === 'Y2') {
+    const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, parsed.full);
+    if (!seniorRow) {
+      appendRow(TABS.SENIORS, [parsed.full, '', 'APE/TME', 3, 0, '', '', '', '']);
+    }
+  }
+
+  const match = pairs.find(r => {
+    const y2 = String(r[COL.PAIRS.y2_id - 1]).trim();
+    const y1 = String(r[COL.PAIRS.y1_id - 1]).trim();
+    const status = String(r[COL.PAIRS.status - 1]).trim();
+    if (parsed.role === 'Y2') {
+      return y1 && parseStudentId(y1).suffix === parsed.suffix && !y2 && status !== 'matched';
+    } else {
+      return y2 && parseStudentId(y2).suffix === parsed.suffix && !y1 && status !== 'matched';
+    }
+  });
+
+  if (match) {
+    return {
+      ok: true,
+      pair: {
+        pair_key: match[COL.PAIRS.pair_key - 1],
+        y2_id: match[COL.PAIRS.y2_id - 1],
+        y1_id: match[COL.PAIRS.y1_id - 1],
+        reveal_at: match[COL.PAIRS.reveal_at - 1],
+        status: match[COL.PAIRS.status - 1]
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    pair: null,
+    parsed: parsed
+  };
+}
+
+function handleGetPairByKey(pairKey) {
+  const pairRow = findRow(TABS.PAIRS, COL.PAIRS.pair_key, pairKey);
+  if (!pairRow) return { ok: false, error: 'Pair not found' };
+  const p = pairRow.data;
+  return {
+    ok: true,
+    pair: {
+      pair_key: p[COL.PAIRS.pair_key - 1],
+      y2_id: p[COL.PAIRS.y2_id - 1],
+      y1_id: p[COL.PAIRS.y1_id - 1],
+      reveal_at: p[COL.PAIRS.reveal_at - 1],
+      status: p[COL.PAIRS.status - 1]
+    }
+  };
+}
+
+function handleGetAvailableJuniors() {
+  const pairs = getDataRows(TABS.PAIRS);
+  const available = pairs
+    .filter(r => {
+      const y1 = String(r[COL.PAIRS.y1_id - 1]).trim();
+      const y2 = String(r[COL.PAIRS.y2_id - 1]).trim();
+      const status = String(r[COL.PAIRS.status - 1]).trim();
+      return y1 && !y2 && status !== 'matched';
+    })
+    .map(r => {
+      const y1Id = r[COL.PAIRS.y1_id - 1];
+      const parsed = parseStudentId(y1Id);
+      return {
+        y1_id: y1Id,
+        pair_key: r[COL.PAIRS.pair_key - 1],
+        core: parsed ? parsed.core : 'APE/TME',
+        suffix: r[COL.PAIRS.pair_key - 1]
+      };
+    });
+
+  return { ok: true, juniors: available };
+}
+
+function handlePickJunior(y2Id, y1Id) {
+  const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, y2Id);
+  const currentPicks = seniorRow ? parseInt(seniorRow.data[COL.SENIORS.current_picks - 1]) || 0 : 0;
+  const maxPicks = seniorRow ? parseInt(seniorRow.data[COL.SENIORS.max_picks - 1]) || 3 : 3;
+
+  if (currentPicks >= maxPicks) {
+    return { ok: false, error: `คุณเลือกน้องได้สูงสุด ${maxPicks} คนแล้ว` };
+  }
+
+  const pairRow = findRow(TABS.PAIRS, COL.PAIRS.y1_id, y1Id);
+  if (!pairRow) return { ok: false, error: 'ไม่พบข้อมูลน้องนี้' };
+
+  const pairData = pairRow.data;
+  const existingY2 = String(pairData[COL.PAIRS.y2_id - 1]).trim();
+  if (existingY2) return { ok: false, error: 'น้องคนนี้มีพี่แล้ว' };
+
+  const now = new Date().toISOString();
+  const newValues = [...pairData];
+  newValues[COL.PAIRS.y2_id - 1] = y2Id;
+  newValues[COL.PAIRS.status - 1] = 'matched';
+  newValues[COL.PAIRS.picked_at - 1] = now;
+  updateRow(TABS.PAIRS, pairRow.rowIndex, newValues);
+
+  if (seniorRow) {
+    const seniorValues = [...seniorRow.data];
+    seniorValues[COL.SENIORS.current_picks - 1] = currentPicks + 1;
+    updateRow(TABS.SENIORS, seniorRow.rowIndex, seniorValues);
+  }
+
+  return { ok: true, pair_key: pairData[COL.PAIRS.pair_key - 1] };
+}
+
+function handleSendMessage(pairKey, fromId, content, type) {
+  const validTypes = ['advice', 'encourage', 'secret', 'custom'];
+  if (!validTypes.includes(type)) type = 'custom';
+  if (!content || content.trim().length === 0) return { ok: false, error: 'ข้อความว่าง' };
+  if (content.length > 500) return { ok: false, error: 'ข้อความยาวเกิน 500 ตัวอักษร' };
+
+  const msgId = Utilities.getUuid();
+  const now = new Date().toISOString();
+  appendRow(TABS.MESSAGES, [msgId, pairKey, fromId, content.trim(), type, now, '']);
+  return { ok: true, message: { id: msgId, pair_key: pairKey, from_id: fromId, content: content.trim(), type, sent_at: now } };
+}
+
+function handleGetThread(pairKey) {
+  const rows = getDataRows(TABS.MESSAGES);
+  const messages = rows
+    .filter(r => {
+      const key = String(r[COL.MESSAGES.pair_key - 1]).trim();
+      return key === String(pairKey).trim();
+    })
+    .map(r => {
+      const fromId = String(r[COL.MESSAGES.from_id - 1] || '').trim();
+      const content = String(r[COL.MESSAGES.content - 1] || '').trim();
+      const type = String(r[COL.MESSAGES.type - 1] || 'custom').trim();
+      
+      return {
+        id: String(r[COL.MESSAGES.id - 1] || ''),
+        pair_key: String(r[COL.MESSAGES.pair_key - 1] || ''),
+        from_id: fromId,
+        content: content,
+        type: type,
+        sent_at: String(r[COL.MESSAGES.sent_at - 1] || ''),
+        read_at: String(r[COL.MESSAGES.read_at - 1] || null)
+      };
+    })
+    .sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at));
+
+  return { ok: true, messages };
+}
+
+function handleGetCountdown(pairKey) {
+  const pairRow = findRow(TABS.PAIRS, COL.PAIRS.pair_key, pairKey);
+  if (!pairRow) return { ok: false, error: 'Pair not found' };
+  return { ok: true, reveal_at: pairRow.data[COL.PAIRS.reveal_at - 1] };
+}
+
+// ============ MENTOR FUNCTIONS ============
+function handleGetMentors() {
+  const rows = getDataRows(TABS.SENIORS);
+  const mentors = rows.map(row => ({
+    id: String(row[COL.SENIORS.y2_id - 1] || '').trim(),
+    name: String(row[COL.SENIORS.name - 1] || '').trim(),
+    faculty: String(row[COL.SENIORS.faculty - 1] || '').trim(),
+    maxPicks: parseInt(row[COL.SENIORS.max_picks - 1]) || 3,
+    currentPicks: parseInt(row[COL.SENIORS.current_picks - 1]) || 0,
+    ig: String(row[COL.SENIORS.ig - 1] || '').trim(),
+    line: String(row[COL.SENIORS.line - 1] || '').trim(),
+    imageUrl: String(row[COL.SENIORS.imageUrl - 1] || '').trim(),
+    pairKey: String(row[COL.SENIORS.pairKey - 1] || '').trim(),
+  }));
+  return { ok: true, mentors };
+}
+
+// ============ PROFILE FUNCTIONS ============
+function handleGetProfile(studentId) {
+  const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, studentId);
+  if (!seniorRow) {
+    return { ok: false, error: 'ไม่พบโปรไฟล์' };
+  }
+  const data = seniorRow.data;
+  return {
+    ok: true,
+    profile: {
+      name: String(data[COL.SENIORS.name - 1] || '').trim(),
+      faculty: String(data[COL.SENIORS.faculty - 1] || '').trim(),
+      ig: String(data[COL.SENIORS.ig - 1] || '').trim(),
+      line: String(data[COL.SENIORS.line - 1] || '').trim(),
+      imageUrl: String(data[COL.SENIORS.imageUrl - 1] || '').trim(),
+      pairKey: String(data[COL.SENIORS.pairKey - 1] || '').trim(),
+    }
+  };
+}
+
+function handleUpdateProfile(studentId, profile) {
+  const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, studentId);
+  if (!seniorRow) {
+    return { ok: false, error: 'ไม่พบข้อมูล' };
+  }
+  
+  const values = [...seniorRow.data];
+  values[COL.SENIORS.name - 1] = profile.name || '';
+  values[COL.SENIORS.faculty - 1] = profile.faculty || 'APE/TME';
+  values[COL.SENIORS.ig - 1] = profile.ig || '';
+  values[COL.SENIORS.line - 1] = profile.line || '';
+  values[COL.SENIORS.imageUrl - 1] = profile.imageUrl || '';
+  
+  updateRow(TABS.SENIORS, seniorRow.rowIndex, values);
+  return { ok: true };
+}
+
+// ============ BOARD (CLUES) FUNCTIONS ============
+function handleAddClue(authorId, content) {
+  if (!content || content.trim().length === 0) {
+    return { ok: false, error: 'กรุณากรอกข้อความ' };
+  }
+  if (content.length > 500) {
+    return { ok: false, error: 'ข้อความยาวเกิน 500 ตัวอักษร' };
+  }
+
+  const clueId = Utilities.getUuid();
+  const now = new Date().toISOString();
+  const top = Math.floor(Math.random() * 60) + 10;
+  const left = Math.floor(Math.random() * 60) + 10;
+  const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+  const rotation = Math.floor((Math.random() - 0.5) * 10);
+
+  const sheet = getSheet(TABS.CLUES);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 8).setValues([['id', 'authorId', 'content', 'createdAt', 'top', 'left', 'color', 'rotation']]);
+  }
+
+  sheet.appendRow([clueId, authorId, content.trim(), now, top, left, color, rotation]);
+
+  return {
+    ok: true,
+    clue: {
+      id: clueId,
+      authorId: authorId,
+      content: content.trim(),
+      createdAt: now,
+      position: { top, left },
+      color: color,
+      rotation: rotation
+    }
+  };
+}
+
+function handleGetClues() {
+  const rows = getDataRows(TABS.CLUES);
+  const clues = rows.map(row => ({
+    id: String(row[0] || '').trim(),
+    authorId: String(row[1] || '').trim(),
+    content: String(row[2] || '').trim(),
+    createdAt: String(row[3] || ''),
+    position: {
+      top: parseFloat(row[4]) || 10,
+      left: parseFloat(row[5]) || 10,
+    },
+    color: String(row[6] || '#FFB3BA').trim(),
+    rotation: parseFloat(row[7]) || 0,
+  }));
+  return { ok: true, clues };
+}
+
+function handleDeleteClue(clueId, authorId) {
+  const rows = getDataRows(TABS.CLUES);
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(clueId).trim()) {
+      const rowAuthor = String(rows[i][1]).trim();
+      if (rowAuthor !== authorId) {
+        return { ok: false, error: 'ไม่มีสิทธิ์ลบคำใบ้นี้' };
+      }
+      const sheet = getSheet(TABS.CLUES);
+      sheet.deleteRow(i + 2);
+      return { ok: true };
+    }
+  }
+  return { ok: false, error: 'ไม่พบคำใบ้' };
+}
+
+// ============ ADMIN HELPERS ============
+function adminImportAPEData(revealAt = '2026-08-15 18:00') {
+  const y2Students = [
+    '68070507601','68070507602','68070507603','68070507605','68070507606',
+    '68070507607','68070507608','68070507609','68070507610','68070507611',
+    '68070507612','68070507613','68070507614','68070507615','68070507616',
+    '68070507618','68070507619','68070507620','68070507622','68070507624',
+    '68070507625','68070507626','68070507627','68070507630','68070507631',
+    '68070507632','68070507633','68070507634','68070507635','68070507636',
+    '68070507637','68070507638','68070507639','68070507640','68070507641',
+    '68070507643'
+  ];
+
+  const y1Students = [
+    '69070509601','69070509602','69070509603','69070509604','69070509605',
+    '69070509606','69070509607','69070509608','69070509609','69070509610',
+    '69070509611','69070509612','69070509613','69070509614','69070509615',
+    '69070509616','69070509617','69070509618','69070509619','69070509620',
+    '69070509621','69070509622','69070509623','69070509624','69070509625',
+    '69070509626','69070509627','69070509628','69070509629','69070509630',
+    '69070509631','69070509632','69070509633','69070509634','69070509635',
+    '69070509636','69070509637','69070509638','69070509639','69070509640'
+  ];
+
+  const pairsToCreate = [];
+  const unpairedY1 = [];
+  const unpairedY2 = [];
+
+  y2Students.forEach(y2 => {
+    const p2 = parseStudentId(y2);
+    const match = y1Students.find(y1 => parseStudentId(y1).suffix === p2.suffix);
+    if (match) {
+      pairsToCreate.push([y2, match, revealAt]);
+    } else {
+      unpairedY2.push(y2);
+    }
+  });
+
+  y1Students.forEach(y1 => {
+    const p1 = parseStudentId(y1);
+    const match = y2Students.find(y2 => parseStudentId(y2).suffix === p1.suffix);
+    if (!match) {
+      unpairedY1.push(y1);
+    }
+  });
+
+  pairsToCreate.forEach(([y2, y1, rAt]) => {
+    const parsedY2 = parseStudentId(y2);
+    const existing = findRow(TABS.PAIRS, COL.PAIRS.pair_key, parsedY2.pairKey);
+    if (existing) {
+      const vals = [...existing.data];
+      vals[COL.PAIRS.y2_id - 1] = y2;
+      vals[COL.PAIRS.y1_id - 1] = y1;
+      vals[COL.PAIRS.reveal_at - 1] = rAt;
+      vals[COL.PAIRS.status - 1] = 'matched';
+      vals[COL.PAIRS.picked_at - 1] = new Date().toISOString();
+      updateRow(TABS.PAIRS, existing.rowIndex, vals);
+    } else {
+      appendRow(TABS.PAIRS, [parsedY2.pairKey, y2, y1, rAt, 'matched', new Date().toISOString()]);
+    }
+
+    const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, y2);
+    if (!seniorRow) {
+      appendRow(TABS.SENIORS, [y2, '', 'APE/TME', 3, 1, '', '', '', parsedY2.pairKey]);
+    } else {
+      const vals = [...seniorRow.data];
+      vals[COL.SENIORS.current_picks - 1] = (parseInt(vals[COL.SENIORS.current_picks - 1]) || 0) + 1;
+      updateRow(TABS.SENIORS, seniorRow.rowIndex, vals);
+    }
+  });
+
+  unpairedY1.forEach(y1 => {
+    const parsed = parseStudentId(y1);
+    const existing = findRow(TABS.PAIRS, COL.PAIRS.y1_id, y1);
+    if (!existing) {
+      appendRow(TABS.PAIRS, [parsed.pairKey, '', y1, '', 'unpaired', '']);
+    }
+  });
+
+  unpairedY2.forEach(y2 => {
+    const parsed = parseStudentId(y2);
+    const existing = findRow(TABS.SENIORS, COL.SENIORS.y2_id, y2);
+    if (!existing) {
+      appendRow(TABS.SENIORS, [y2, '', 'APE/TME', 3, 0, '', '', '', parsed.pairKey]);
+    }
+  });
+
+  console.log(`Imported: ${pairsToCreate.length} pairs, ${unpairedY1.length} unpaired Y1, ${unpairedY2.length} unpaired Y2`);
+}
+
+function testImportAPEData() {
+  adminImportAPEData('2026-08-15 18:00');
+}
+
+// ============ BOARD (CLUES) FUNCTIONS ============
+function handleGetMyClues(studentId) {
+  // 1. หา pairKey ของผู้ใช้
+  const parsed = parseStudentId(studentId);
+  if (!parsed) {
+    return { ok: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' };
+  }
+  
+  const pairKey = parsed.pairKey;
+  
+  // 2. หาคู่ของ pairKey นี้
+  const pairs = getDataRows(TABS.PAIRS);
+  const pair = pairs.find(r => String(r[COL.PAIRS.pair_key - 1]).trim() === pairKey);
+  
+  if (!pair) {
+    return { ok: false, error: 'ไม่พบคู่รหัส' };
+  }
+  
+  const y2Id = String(pair[COL.PAIRS.y2_id - 1]).trim();
+  const y1Id = String(pair[COL.PAIRS.y1_id - 1]).trim();
+  
+  // 3. ดึงคำใบ้ทั้งหมดจากชีท CLUES
+  const rows = getDataRows(TABS.CLUES);
+  
+  // 4. กรองเฉพาะคำใบ้ที่เขียนโดย Y2 (พี่รหัส) หรือ Y1 (น้องรหัส) ในคู่เดียวกัน
+  const myClues = rows
+    .filter(row => {
+      const authorId = String(row[1] || '').trim();
+      // ถ้าเป็น Y2 ให้เห็นคำใบ้ของ Y2 ในคู่เดียวกัน
+      // ถ้าเป็น Y1 ให้เห็นคำใบ้ของ Y1 ในคู่เดียวกัน
+      if (parsed.role === 'Y2') {
+        return authorId === y2Id;
+      } else if (parsed.role === 'Y1') {
+        return authorId === y1Id;
+      }
+      return false;
+    })
+    .map(row => ({
+      id: String(row[0] || '').trim(),
+      authorId: String(row[1] || '').trim(),
+      content: String(row[2] || '').trim(),
+      createdAt: String(row[3] || ''),
+      position: {
+        top: parseFloat(row[4]) || 10,
+        left: parseFloat(row[5]) || 10,
+      },
+      color: String(row[6] || '#FFB3BA').trim(),
+      rotation: parseFloat(row[7]) || 0,
+    }));
+  
+  return { ok: true, clues: myClues };
+}
