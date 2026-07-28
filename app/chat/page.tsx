@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getChatMessages, sendChatMessage, getMyJunior } from '@/lib/gasClient';
+import { getChatMessages, sendChatMessage, getMentors } from '@/lib/gasClient';
 
 interface Message {
   id: string;
@@ -12,23 +12,27 @@ interface Message {
   sent_at: string;
 }
 
-interface ChatPartner {
+interface Mentor {
   id: string;
   name: string;
+  ig: string;
+  line: string;
   faculty: string;
+  year: string;
   imageUrl?: string;
-  pairKey: string;
+  pairKey?: string;
 }
 
 export default function ChatPage() {
   const router = useRouter();
   const [session, setSession] = useState<any>(null);
-  const [partner, setPartner] = useState<ChatPartner | null>(null);
+  const [mentors, setMentors] = useState<Mentor[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -41,7 +45,7 @@ export default function ChatPage() {
     try {
       const parsed = JSON.parse(savedSession);
       setSession(parsed);
-      loadPartner(parsed);
+      loadMentors(parsed);
     } catch (e) {
       console.error('❌ Failed to parse session:', e);
       router.push('/login');
@@ -52,45 +56,24 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const loadPartner = async (session: any) => {
+  const loadMentors = async (session: any) => {
     setIsLoading(true);
-    setError(null);
     try {
-      if (session.role === 'Y1') {
-        // ✅ Y1: หาพี่รหัสของตัวเอง
-        const result = await getMentors();
-        if (result.ok && result.mentors) {
+      const result = await getMentors();
+      if (result.ok && result.mentors) {
+        setMentors(result.mentors);
+        
+        // ถ้าเป็น Y1 ให้เลือกพี่รหัสของตัวเองอัตโนมัติ
+        if (session.role === 'Y1') {
           const myPairKey = session.pairKey || '';
-          const found = result.mentors.find((m: any) => m.pairKey === myPairKey);
-          if (found) {
-            setPartner({
-              id: found.id,
-              name: found.name || found.id,
-              faculty: found.faculty || 'APE/TME',
-              imageUrl: found.imageUrl || '',
-              pairKey: myPairKey,
-            });
-          } else {
-            setError('ไม่พบพี่รหัสของคุณ');
+          const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
+          if (myMentor) {
+            setSelectedMentor(myMentor);
           }
-        }
-      } else if (session.role === 'Y2') {
-        // ✅ Y2: หาน้องรหัสของตัวเอง
-        const result = await getMyJunior(session.studentId);
-        if (result.ok && result.junior) {
-          setPartner({
-            id: result.junior.id,
-            name: result.junior.name || result.junior.id,
-            faculty: result.junior.faculty || 'APE/TME',
-            imageUrl: result.junior.imageUrl || '',
-            pairKey: result.junior.pairKey || session.pairKey || '',
-          });
-        } else {
-          setError(result.error || 'ยังไม่มีน้องรหัส');
         }
       }
     } catch (error) {
-      console.error('❌ Error loading partner:', error);
+      console.error('❌ Error loading mentors:', error);
       setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
     } finally {
       setIsLoading(false);
@@ -98,10 +81,10 @@ export default function ChatPage() {
   };
 
   const loadMessages = async () => {
-    if (!session || !partner) return;
+    if (!session || !selectedMentor) return;
     
     try {
-      const pairKey = session.pairKey || partner.pairKey || '';
+      const pairKey = session.pairKey || selectedMentor.pairKey || '';
       const result = await getChatMessages(session.studentId, pairKey);
       
       if (result.ok && result.messages) {
@@ -112,11 +95,12 @@ export default function ChatPage() {
     }
   };
 
-  // โหลดข้อความเมื่อมี partner
+  // โหลดข้อความเมื่อเลือก mentor
   useEffect(() => {
-    if (partner && session) {
+    if (selectedMentor && session) {
       loadMessages();
       
+      // Polling ทุก 5 วินาที
       if (pollingInterval.current) clearInterval(pollingInterval.current);
       pollingInterval.current = setInterval(loadMessages, 5000);
     }
@@ -124,14 +108,14 @@ export default function ChatPage() {
     return () => {
       if (pollingInterval.current) clearInterval(pollingInterval.current);
     };
-  }, [partner, session]);
+  }, [selectedMentor, session]);
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !session || !partner || isSending) return;
+    if (!newMessage.trim() || !session || !selectedMentor || isSending) return;
 
     setIsSending(true);
     try {
-      const pairKey = session.pairKey || partner.pairKey || '';
+      const pairKey = session.pairKey || selectedMentor.pairKey || '';
       const result = await sendChatMessage(session.studentId, pairKey, newMessage.trim());
       
       if (result.ok && result.message) {
@@ -148,6 +132,12 @@ export default function ChatPage() {
     }
   };
 
+  // ฟังก์ชันเลือก mentor (สำหรับ Y2)
+  const handleSelectMentor = (mentor: Mentor) => {
+    setSelectedMentor(mentor);
+    setMessages([]);
+  };
+
   if (!session) {
     return (
       <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -159,25 +149,154 @@ export default function ChatPage() {
     );
   }
 
-  if (isLoading) {
+  // ถ้าเป็น Y1 และยังไม่มี selectedMentor
+  if (session.role === 'Y1' && !selectedMentor && !isLoading) {
     return (
-      <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <div className="card text-center" style={{ maxWidth: '320px' }}>
-          <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
-          <p className="body-sm">กำลังโหลดข้อมูล...</p>
+      <div className="app">
+        <header className="chat-header">
+          <div className="chat-header-left">
+            <Link href="/" className="btn btn-ghost" style={{ padding: '4px 8px' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+            </Link>
+            <span className="h2" style={{ fontSize: '1.2rem' }}>💬 แชท</span>
+          </div>
+          <div className="chat-header-right">
+            <span className="badge badge-matched">น้อง (Y1)</span>
+          </div>
+        </header>
+        <div className="card text-center">
+          <p className="body-sm">ไม่พบพี่รหัสของคุณ</p>
+          <p className="body-sm" style={{ color: 'var(--fg-muted)', fontSize: '0.85rem' }}>
+            กรุณาติดต่อแอดมินเพื่อจับคู่
+          </p>
         </div>
       </div>
     );
   }
 
-  if (error || !partner) {
+  // ถ้าเป็น Y2 ให้เลือกว่าแชทกับน้องคนไหน
+  if (session.role === 'Y2' && !selectedMentor && !isLoading) {
+    return (
+      <div className="app">
+        <header className="chat-header">
+          <div className="chat-header-left">
+            <Link href="/" className="btn btn-ghost" style={{ padding: '4px 8px' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+            </Link>
+            <span className="h2" style={{ fontSize: '1.2rem' }}>💬 เลือกแชท</span>
+          </div>
+          <div className="chat-header-right">
+            <span className="badge badge-matched">พี่ (Y2)</span>
+          </div>
+        </header>
+
+        {mentors.filter(m => m.id !== session.studentId).length === 0 ? (
+          <div className="card text-center">
+            <p className="body-sm">ยังไม่มีน้องรหัสให้แชท</p>
+          </div>
+        ) : (
+          mentors
+            .filter(m => m.id !== session.studentId)
+            .map((mentor) => (
+              <div key={mentor.id} className="mentor-card" onClick={() => handleSelectMentor(mentor)}>
+                <div className="mentor-avatar">
+                  {mentor.imageUrl ? (
+                    <img src={mentor.imageUrl} alt={mentor.name} />
+                  ) : (
+                    <span className="avatar-placeholder">👤</span>
+                  )}
+                </div>
+                <div className="mentor-info">
+                  <h3 className="mentor-name">{mentor.name || 'ไม่ระบุชื่อ'}</h3>
+                  <p className="mentor-details">{mentor.faculty || 'APE/TME'}</p>
+                </div>
+                <div className="mentor-action">
+                  <span className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '0.8rem' }}>
+                    💬 แชท
+                  </span>
+                </div>
+              </div>
+            ))
+        )}
+
+        <style>{`
+          .mentor-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 10px;
+            transition: all var(--transition);
+            cursor: pointer;
+          }
+
+          .mentor-card:hover {
+            border-color: var(--primary-strong);
+            box-shadow: var(--shadow);
+            transform: translateX(4px);
+          }
+
+          .mentor-avatar {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            overflow: hidden;
+          }
+
+          .mentor-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+
+          .avatar-placeholder {
+            font-size: 1.8rem;
+            color: var(--fg-muted);
+          }
+
+          .mentor-info {
+            flex: 1;
+            min-width: 0;
+          }
+
+          .mentor-name {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0;
+          }
+
+          .mentor-details {
+            font-size: 0.8rem;
+            color: var(--fg-muted);
+            margin: 2px 0;
+          }
+
+          .mentor-action {
+            flex-shrink: 0;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (!selectedMentor) {
     return (
       <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <div className="card text-center" style={{ maxWidth: '320px', background: 'var(--error)', borderColor: 'var(--error)' }}>
-          <p className="body-sm" style={{ color: 'var(--fg)' }}>❌ {error || 'ไม่พบคู่แชท'}</p>
-          <Link href="/" className="btn btn-primary" style={{ marginTop: '12px' }}>
-            ← กลับหน้าหลัก
-          </Link>
+        <div className="card text-center" style={{ maxWidth: '320px' }}>
+          <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
+          <p className="body-sm">กำลังโหลด...</p>
         </div>
       </div>
     );
@@ -188,30 +307,39 @@ export default function ChatPage() {
     <div className="app" style={{ paddingBottom: '20px' }}>
       <header className="chat-header">
         <div className="chat-header-left">
-          <Link href="/" className="btn btn-ghost" style={{ padding: '4px 8px' }}>
+          <button 
+            className="btn btn-ghost" 
+            onClick={() => {
+              setSelectedMentor(null);
+              setMessages([]);
+            }}
+            style={{ padding: '4px 8px' }}
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
-          </Link>
+          </button>
           <span className="h2" style={{ fontSize: '1.2rem' }}>
-            💬 {partner.name}
+            💬 {selectedMentor.name || 'ไม่ระบุชื่อ'}
           </span>
         </div>
         <div className="chat-header-right">
           <span className="badge badge-matched">
             {session.role === 'Y2' ? 'พี่รหัส' : 'น้องรหัส'}
           </span>
-          <span className="badge badge-matched" style={{ backgroundColor: '#e3e7f8', color: '#6575ac' }}>
-            🔑 {partner.pairKey || session.pairKey}
-          </span>
         </div>
       </header>
 
       <div className="chat-container">
         <div className="messages-area">
-          {messages.length === 0 ? (
+          {isLoading ? (
             <div className="empty-state">
-              <p className="body-sm">เริ่มพูดคุยกับ {partner.name} กันเลย! 💬</p>
+              <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
+              <p className="body-sm">กำลังโหลดข้อความ...</p>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="empty-state">
+              <p className="body-sm">เริ่มพูดคุยกันเลย! 💬</p>
             </div>
           ) : (
             messages.map((msg) => {
@@ -236,7 +364,7 @@ export default function ChatPage() {
             <input
               type="text"
               className="input-field"
-              placeholder={`พิมพ์ข้อความถึง ${partner.name}...`}
+              placeholder={`พิมพ์ข้อความถึง ${selectedMentor.name}...`}
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
