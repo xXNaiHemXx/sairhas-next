@@ -1,7 +1,7 @@
 // lib/session.ts
 // Session management with validation and expiry
 
-import { updateSession } from './gasClient';
+import { pb } from './pocketbase';
 
 export interface Session {
   studentId: string;
@@ -18,8 +18,8 @@ const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
  * Create a new session with expiry
  */
 export function createSession(
-  studentId: string, 
-  role: 'Y1' | 'Y2', 
+  studentId: string,
+  role: 'Y1' | 'Y2',
   pairKey: string
 ): Session {
   const now = Date.now();
@@ -33,21 +33,38 @@ export function createSession(
 }
 
 /**
- * Save session to localStorage AND Google Sheets
+ * Save session to localStorage
  */
 export function saveSession(session: Session): void {
   // ✅ เก็บใน localStorage
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  
-  // ✅ เก็บใน Google Sheets ด้วย
-  updateSession(session.studentId, {
+
+  // ✅ เก็บใน PocketBase ด้วย (ใช้ collection 'sessions')
+  const sessionData = {
+    studentId: session.studentId,
     role: session.role,
     pairKey: session.pairKey,
-    createdAt: session.createdAt,
-    expiresAt: session.expiresAt,
-  }).catch(err => {
-    console.error('❌ Failed to save session to sheet:', err);
-  });
+    createdAt: new Date(session.createdAt).toISOString(),
+    expiresAt: new Date(session.expiresAt).toISOString(),
+  };
+
+  // ✅ บันทึกหรืออัปเดต session ใน PocketBase
+  pb.collection('sessions')
+    .getList(1, 1, {
+      filter: `studentId = "${session.studentId}"`,
+    })
+    .then((result) => {
+      if (result.items.length > 0) {
+        // อัปเดต
+        pb.collection('sessions').update(result.items[0].id, sessionData);
+      } else {
+        // สร้างใหม่
+        pb.collection('sessions').create(sessionData);
+      }
+    })
+    .catch((err) => {
+      console.error('❌ Failed to save session to PocketBase:', err);
+    });
 }
 
 /**
@@ -57,21 +74,21 @@ export function getSession(): Session | null {
   try {
     const stored = localStorage.getItem(SESSION_KEY);
     if (!stored) return null;
-    
+
     const session = JSON.parse(stored) as Session;
-    
+
     // Validate session structure
     if (!session.studentId || !session.role || !session.pairKey) {
       clearSession();
       return null;
     }
-    
+
     // Check expiry
     if (Date.now() > session.expiresAt) {
       clearSession();
       return null;
     }
-    
+
     return session;
   } catch {
     clearSession();

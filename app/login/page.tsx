@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { verifyStudentId, checkNetwork } from '@/lib/gasClient';
+import { login } from '@/lib/apiClient';
 import { parseStudentId, isValidStudentId } from '@/lib/studentId';
 import { createSession, saveSession } from '@/lib/session';
+import { pb } from '@/lib/pocketbase';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,8 +25,8 @@ export default function LoginPage() {
 
   const checkNetworkStatus = async () => {
     try {
-      const result = await checkNetwork();
-      setIsOnline(result.ok);
+      await pb.health.check();
+      setIsOnline(true);
     } catch {
       setIsOnline(false);
     }
@@ -64,7 +65,11 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const result = await verifyStudentId(studentId);
+      console.log('🔍 [Login] Attempting login with:', studentId);
+      
+      // ✅ ใช้ PocketBase login แทน GAS
+      const result = await login(studentId);
+      console.log('🔍 [Login] Result:', result);
       
       if (!result.ok) {
         setError(result.error || 'เกิดข้อผิดพลาด');
@@ -72,36 +77,23 @@ export default function LoginPage() {
         return;
       }
 
-      console.log('🔍 Login result:', result);
-
-      let role: 'Y1' | 'Y2' | null = null;
-      let pairKey = '';
-
-      if (result.pair) {
-        role = result.pair.y2_id === studentId ? 'Y2' : 'Y1';
-        pairKey = result.pair.pair_key || '';
-        console.log('✅ Found pair:', result.pair);
-        console.log('✅ Role:', role, 'PairKey:', pairKey);
-      } else if (result.parsed) {
-        role = result.parsed.role;
-        pairKey = result.parsed.pairKey || '';
-        console.log('✅ Parsed student:', result.parsed);
-        console.log('✅ Role:', role, 'PairKey:', pairKey);
-      }
-
-      if (!role) {
+      if (result.user) {
+        // ✅ บันทึก session
+        const session = createSession(
+          result.user.studentId,
+          result.user.role,
+          result.user.pairKey
+        );
+        console.log('💾 [Login] Saving session:', session);
+        saveSession(session);
+        
+        console.log('🔄 [Login] Redirecting to home...');
+        router.push('/');
+      } else {
         setError('ไม่พบข้อมูลนักศึกษา');
-        setIsLoading(false);
-        return;
       }
-
-      // ✅ บันทึก session พร้อม pairKey (ใช้ session management ใหม่)
-      const session = createSession(studentId, role, pairKey);
-      console.log('💾 Saving session:', session);
-      saveSession(session);
-      router.push('/');
     } catch (err) {
-      console.error('❌ Login error:', err);
+      console.error('❌ [Login] Error:', err);
       setError('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
     }
     setIsLoading(false);

@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { checkNetwork } from '@/lib/gasClient';
 import { getSession, clearSession, Session } from '@/lib/session';
+import { pb } from '@/lib/pocketbase';
 
 export default function Home() {
   const router = useRouter();
@@ -26,8 +26,9 @@ export default function Home() {
 
   const checkNetworkStatus = async () => {
     try {
-      const result = await checkNetwork();
-      setIsOnline(result.ok);
+      // ✅ ใช้ PocketBase แทน checkNetwork
+      const health = await pb.health.check();
+      setIsOnline(true);
     } catch {
       setIsOnline(false);
     }
@@ -35,6 +36,7 @@ export default function Home() {
 
   const handleLogout = () => {
     clearSession();
+    pb.authStore.clear();
     setIsLoggedIn(false);
     setSession(null);
     router.push('/login');
@@ -75,7 +77,6 @@ export default function Home() {
 
   return (
     <div className="app">
-      {/* Header */}
       <header className="home-header">
         <div className="home-header-left">
           <span className="text-xl">🔗</span>
@@ -101,13 +102,11 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Welcome */}
       <div className="card">
         <h2 className="h2">👋 สวัสดี, {session.studentId}</h2>
         <p className="body-sm">บทบาท: {session.role === 'Y2' ? 'พี่รหัส (Y2)' : 'น้องรหัส (Y1)'}</p>
       </div>
 
-      {/* Menu Grid */}
       <div className="menu-grid">
         <Link href="/mentor" className="menu-card">
           <div className="menu-icon">👥</div>
@@ -128,7 +127,6 @@ export default function Home() {
         </Link>
       </div>
 
-      {/* Network Status */}
       <div className="card">
         <div className="net-status">
           <span className={`net-dot ${isOnline ? 'online' : 'offline'}`}></span>

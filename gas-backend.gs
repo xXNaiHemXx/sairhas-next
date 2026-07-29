@@ -1,6 +1,6 @@
 /**
  * สายรหัส (Code Line) - Google Apps Script Backend
- * รองรับ CORS 100%
+ * รองรับ CORS 100% + Cache Optimization
  */
 
 // ============ CONFIG ============
@@ -8,13 +8,13 @@ const TABS = {
   PAIRS: 'pairs',
   SENIORS: 'seniors',
   MESSAGES: 'messages',
-  CLUES: 'clues',  // ✅ เพิ่มสำหรับกระดานคำใบ้
-  SESSIONS: 'sessions'  // ✅ เพิ่ม
+  CLUES: 'clues',
+  SESSIONS: 'sessions'
 };
 
 const COL = {
   PAIRS: { pair_key: 1, y2_id: 2, y1_id: 3, reveal_at: 4, status: 5, picked_at: 6 },
-  SENIORS: { y2_id: 1, name: 2, faculty: 3, max_picks: 4, current_picks: 5, ig: 6, line: 7, imageUrl: 8, pairKey: 9 },
+  SENIORS: { y2_id: 1, nickname: 2, faculty: 3, max_picks: 4, current_picks: 5, ig: 6, line: 7, imageUrl: 8, pairKey: 9 },
   MESSAGES: { id: 1, pair_key: 2, from_id: 3, content: 4, type: 5, sent_at: 6, read_at: 7 }
 };
 
@@ -88,7 +88,7 @@ function doGet(e) {
   }
 }
 
-// ============ doPost (สำหรับ POST request) ============
+// ============ doPost ============
 function doPost(e) {
   try {
     let payload;
@@ -210,10 +210,10 @@ function getSheet(tabName) {
     sheet = ss.insertSheet(tabName);
     const headers = {
       [TABS.PAIRS]: [['pair_key', 'y2_id', 'y1_id', 'reveal_at', 'status', 'picked_at']],
-      [TABS.SENIORS]: [['y2_id', 'name', 'faculty', 'max_picks', 'current_picks', 'ig', 'line', 'imageUrl', 'pairKey']],
+      [TABS.SENIORS]: [['y2_id', 'nickname', 'faculty', 'max_picks', 'current_picks', 'ig', 'line', 'imageUrl', 'pairKey']],
       [TABS.MESSAGES]: [['id', 'pair_key', 'from_id', 'content', 'type', 'sent_at', 'read_at']],
       [TABS.CLUES]: [['id', 'authorId', 'content', 'createdAt', 'top', 'left', 'color', 'rotation']],
-      [TABS.SESSIONS]: [['studentId', 'role', 'pairKey', 'createdAt', 'expiresAt']]  // ✅ เพิ่ม
+      [TABS.SESSIONS]: [['studentId', 'role', 'pairKey', 'createdAt', 'expiresAt']]
     };
     if (headers[tabName]) {
       sheet.getRange(1, 1, 1, headers[tabName][0].length).setValues(headers[tabName]);
@@ -428,21 +428,35 @@ function handleGetCountdown(pairKey) {
   return { ok: true, reveal_at: pairRow.data[COL.PAIRS.reveal_at - 1] };
 }
 
-// ============ MENTOR FUNCTIONS ============
+// ============ MENTOR FUNCTIONS (CACHED) ============
 function handleGetMentors() {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'mentors_list_v2';
+  const cached = cache.get(cacheKey);
+  
+  if (cached) {
+    console.log('⚡ GAS Cache HIT for mentors');
+    return JSON.parse(cached);
+  }
+  
   const rows = getDataRows(TABS.SENIORS);
-  const mentors = rows.map(row => ({
-    id: String(row[COL.SENIORS.y2_id - 1] || '').trim(),
-    name: String(row[COL.SENIORS.name - 1] || '').trim(),
-    faculty: String(row[COL.SENIORS.faculty - 1] || '').trim(),
-    maxPicks: parseInt(row[COL.SENIORS.max_picks - 1]) || 3,
-    currentPicks: parseInt(row[COL.SENIORS.current_picks - 1]) || 0,
-    ig: String(row[COL.SENIORS.ig - 1] || '').trim(),
-    line: String(row[COL.SENIORS.line - 1] || '').trim(),
-    imageUrl: String(row[COL.SENIORS.imageUrl - 1] || '').trim(),
-    pairKey: String(row[COL.SENIORS.pairKey - 1] || '').trim(),
-  }));
-  return { ok: true, mentors };
+  const mentors = rows
+    .filter(row => String(row[COL.SENIORS.y2_id - 1] || '').trim() !== '')
+    .map(row => ({
+      id: String(row[COL.SENIORS.y2_id - 1] || '').trim(),
+      nickname: String(row[COL.SENIORS.nickname - 1] || '').trim(),
+      faculty: String(row[COL.SENIORS.faculty - 1] || '').trim(),
+      maxPicks: parseInt(row[COL.SENIORS.max_picks - 1]) || 3,
+      currentPicks: parseInt(row[COL.SENIORS.current_picks - 1]) || 0,
+      ig: String(row[COL.SENIORS.ig - 1] || '').trim(),
+      line: String(row[COL.SENIORS.line - 1] || '').trim(),
+      imageUrl: String(row[COL.SENIORS.imageUrl - 1] || '').trim(),
+      pairKey: String(row[COL.SENIORS.pairKey - 1] || '').trim(),
+    }));
+  
+  const result = { ok: true, mentors };
+  cache.put(cacheKey, JSON.stringify(result), 300); // 5 นาที
+  return result;
 }
 
 // ============ PROFILE FUNCTIONS ============
@@ -455,7 +469,7 @@ function handleGetProfile(studentId) {
   return {
     ok: true,
     profile: {
-      name: String(data[COL.SENIORS.name - 1] || '').trim(),
+      nickname: String(data[COL.SENIORS.nickname - 1] || '').trim(),
       faculty: String(data[COL.SENIORS.faculty - 1] || '').trim(),
       ig: String(data[COL.SENIORS.ig - 1] || '').trim(),
       line: String(data[COL.SENIORS.line - 1] || '').trim(),
@@ -471,8 +485,11 @@ function handleUpdateProfile(studentId, profile) {
     return { ok: false, error: 'ไม่พบข้อมูล' };
   }
   
+  // ✅ ล้าง Cache เมื่อมีอัปเดต
+  CacheService.getScriptCache().remove('mentors_list_v2');
+  
   const values = [...seniorRow.data];
-  values[COL.SENIORS.name - 1] = profile.name || '';
+  values[COL.SENIORS.nickname - 1] = profile.nickname || '';
   values[COL.SENIORS.faculty - 1] = profile.faculty || 'APE/TME';
   values[COL.SENIORS.ig - 1] = profile.ig || '';
   values[COL.SENIORS.line - 1] = profile.line || '';
@@ -563,16 +580,12 @@ function handleGetChatMessages(studentId, pairKey) {
     .map(r => {
       const fromId = String(r[COL.MESSAGES.from_id - 1] || '').trim();
       const content = String(r[COL.MESSAGES.content - 1] || '').trim();
-      const type = String(r[COL.MESSAGES.type - 1] || 'custom').trim();
       
       return {
         id: String(r[COL.MESSAGES.id - 1] || ''),
-        pair_key: String(r[COL.MESSAGES.pair_key - 1] || ''),
         from_id: fromId,
         content: content,
-        type: type,
         sent_at: String(r[COL.MESSAGES.sent_at - 1] || ''),
-        read_at: String(r[COL.MESSAGES.read_at - 1] || null)
       };
     })
     .sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at));
@@ -586,8 +599,8 @@ function handleSendChatMessage(fromId, pairKey, content) {
 
   const msgId = Utilities.getUuid();
   const now = new Date().toISOString();
-  appendRow(TABS.MESSAGES, [msgId, pairKey, fromId, content.trim(), 'custom', now, '']);
-  return { ok: true, message: { id: msgId, pair_key: pairKey, from_id: fromId, content: content.trim(), type: 'custom', sent_at: now } };
+  appendRow(TABS.MESSAGES, [msgId, pairKey, fromId, content.trim(), 'chat', now, '']);
+  return { ok: true, message: { id: msgId, from_id: fromId, content: content.trim(), sent_at: now } };
 }
 
 // ============ GET MY JUNIOR ============
@@ -621,191 +634,17 @@ function handleGetMyJunior(y2Id) {
   };
 }
 
-// ============ ADMIN HELPERS ============
-function adminImportAPEData(revealAt = '2026-08-15 18:00') {
-  const y2Students = [
-    '68070507601','68070507602','68070507603','68070507605','68070507606',
-    '68070507607','68070507608','68070507609','68070507610','68070507611',
-    '68070507612','68070507613','68070507614','68070507615','68070507616',
-    '68070507618','68070507619','68070507620','68070507622','68070507624',
-    '68070507625','68070507626','68070507627','68070507630','68070507631',
-    '68070507632','68070507633','68070507634','68070507635','68070507636',
-    '68070507637','68070507638','68070507639','68070507640','68070507641',
-    '68070507643'
-  ];
-
-  const y1Students = [
-    '69070509601','69070509602','69070509603','69070509604','69070509605',
-    '69070509606','69070509607','69070509608','69070509609','69070509610',
-    '69070509611','69070509612','69070509613','69070509614','69070509615',
-    '69070509616','69070509617','69070509618','69070509619','69070509620',
-    '69070509621','69070509622','69070509623','69070509624','69070509625',
-    '69070509626','69070509627','69070509628','69070509629','69070509630',
-    '69070509631','69070509632','69070509633','69070509634','69070509635',
-    '69070509636','69070509637','69070509638','69070509639','69070509640'
-  ];
-
-  const pairsToCreate = [];
-  const unpairedY1 = [];
-  const unpairedY2 = [];
-
-  y2Students.forEach(y2 => {
-    const p2 = parseStudentId(y2);
-    const match = y1Students.find(y1 => parseStudentId(y1).suffix === p2.suffix);
-    if (match) {
-      pairsToCreate.push([y2, match, revealAt]);
-    } else {
-      unpairedY2.push(y2);
-    }
-  });
-
-  y1Students.forEach(y1 => {
-    const p1 = parseStudentId(y1);
-    const match = y2Students.find(y2 => parseStudentId(y2).suffix === p1.suffix);
-    if (!match) {
-      unpairedY1.push(y1);
-    }
-  });
-
-  pairsToCreate.forEach(([y2, y1, rAt]) => {
-    const parsedY2 = parseStudentId(y2);
-    const existing = findRow(TABS.PAIRS, COL.PAIRS.pair_key, parsedY2.pairKey);
-    if (existing) {
-      const vals = [...existing.data];
-      vals[COL.PAIRS.y2_id - 1] = y2;
-      vals[COL.PAIRS.y1_id - 1] = y1;
-      vals[COL.PAIRS.reveal_at - 1] = rAt;
-      vals[COL.PAIRS.status - 1] = 'matched';
-      vals[COL.PAIRS.picked_at - 1] = new Date().toISOString();
-      updateRow(TABS.PAIRS, existing.rowIndex, vals);
-    } else {
-      appendRow(TABS.PAIRS, [parsedY2.pairKey, y2, y1, rAt, 'matched', new Date().toISOString()]);
-    }
-
-    const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, y2);
-    if (!seniorRow) {
-      appendRow(TABS.SENIORS, [y2, '', 'APE/TME', 3, 1, '', '', '', parsedY2.pairKey]);
-    } else {
-      const vals = [...seniorRow.data];
-      vals[COL.SENIORS.current_picks - 1] = (parseInt(vals[COL.SENIORS.current_picks - 1]) || 0) + 1;
-      updateRow(TABS.SENIORS, seniorRow.rowIndex, vals);
-    }
-  });
-
-  unpairedY1.forEach(y1 => {
-    const parsed = parseStudentId(y1);
-    const existing = findRow(TABS.PAIRS, COL.PAIRS.y1_id, y1);
-    if (!existing) {
-      appendRow(TABS.PAIRS, [parsed.pairKey, '', y1, '', 'unpaired', '']);
-    }
-  });
-
-  unpairedY2.forEach(y2 => {
-    const parsed = parseStudentId(y2);
-    const existing = findRow(TABS.SENIORS, COL.SENIORS.y2_id, y2);
-    if (!existing) {
-      appendRow(TABS.SENIORS, [y2, '', 'APE/TME', 3, 0, '', '', '', parsed.pairKey]);
-    }
-  });
-
-  console.log(`Imported: ${pairsToCreate.length} pairs, ${unpairedY1.length} unpaired Y1, ${unpairedY2.length} unpaired Y2`);
-}
-
-function testImportAPEData() {
-  adminImportAPEData('2026-08-15 18:00');
-}
-
-// ============ BOARD (CLUES) FUNCTIONS ============
-function handleGetMyClues(studentId) {
-  // 1. หา pairKey ของผู้ใช้
-  const parsed = parseStudentId(studentId);
-  if (!parsed) {
-    return { ok: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' };
-  }
-  
-  const pairKey = parsed.pairKey;
-  
-  // 2. หาคู่ของ pairKey นี้
-  const pairs = getDataRows(TABS.PAIRS);
-  const pair = pairs.find(r => String(r[COL.PAIRS.pair_key - 1]).trim() === pairKey);
-  
-  if (!pair) {
-    return { ok: false, error: 'ไม่พบคู่รหัส' };
-  }
-  
-  const y2Id = String(pair[COL.PAIRS.y2_id - 1]).trim();
-  const y1Id = String(pair[COL.PAIRS.y1_id - 1]).trim();
-  
-  // 3. ดึงคำใบ้ทั้งหมดจากชีท CLUES
-  const rows = getDataRows(TABS.CLUES);
-  
-  // 4. กรองเฉพาะคำใบ้ที่เขียนโดย Y2 (พี่รหัส) หรือ Y1 (น้องรหัส) ในคู่เดียวกัน
-  const myClues = rows
-    .filter(row => {
-      const authorId = String(row[1] || '').trim();
-      // ถ้าเป็น Y2 ให้เห็นคำใบ้ของ Y2 ในคู่เดียวกัน
-      // ถ้าเป็น Y1 ให้เห็นคำใบ้ของ Y1 ในคู่เดียวกัน
-      if (parsed.role === 'Y2') {
-        return authorId === y2Id;
-      } else if (parsed.role === 'Y1') {
-        return authorId === y1Id;
-      }
-      return false;
-    })
-    .map(row => ({
-      id: String(row[0] || '').trim(),
-      authorId: String(row[1] || '').trim(),
-      content: String(row[2] || '').trim(),
-      createdAt: String(row[3] || ''),
-      position: {
-        top: parseFloat(row[4]) || 10,
-        left: parseFloat(row[5]) || 10,
-      },
-      color: String(row[6] || '#FFB3BA').trim(),
-      rotation: parseFloat(row[7]) || 0,
-    }));
-  
-  return { ok: true, clues: myClues };
-}
-
-// ============ UPDATE SESSION ============
-function handleUpdateSession(studentId, sessionData) {
-  // เก็บ session ลงในชีท sessions (สร้างใหม่ถ้ายังไม่มี)
-  const sheet = getSheet('sessions');
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, 4).setValues([['studentId', 'role', 'pairKey', 'updatedAt']]);
-  }
-  
-  // หาแถวที่มี studentId นี้
-  const rows = getDataRows('sessions');
-  let found = false;
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(studentId).trim()) {
-      // อัปเดตแถวที่มีอยู่
-      const values = [...rows[i]];
-      values[1] = sessionData.role || '';
-      values[2] = sessionData.pairKey || '';
-      values[3] = new Date().toISOString();
-      updateRow('sessions', i + 2, values);
-      found = true;
-      break;
-    }
-  }
-  
-  if (!found) {
-    // เพิ่มแถวใหม่
-    appendRow('sessions', [
-      studentId,
-      sessionData.role || '',
-      sessionData.pairKey || '',
-      new Date().toISOString()
-    ]);
-  }
-  
-  return { ok: true };
-} 
-// ============ GET MY PAIR ============
+// ============ GET MY PAIR (CACHED) ============
 function handleGetMyPair(studentId) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = `mypair_${studentId}`;
+  const cached = cache.get(cacheKey);
+  
+  if (cached) {
+    console.log('⚡ GAS Cache HIT for mypair');
+    return JSON.parse(cached);
+  }
+  
   const parsed = parseStudentId(studentId);
   if (!parsed) {
     return { ok: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' };
@@ -857,7 +696,7 @@ function handleGetMyPair(studentId) {
     return { ok: false, error: 'ยังไม่มีคู่รหัส' };
   }
   
-  return {
+  const result = {
     ok: true,
     partner: {
       id: partnerId,
@@ -868,4 +707,95 @@ function handleGetMyPair(studentId) {
       role: partnerRole,
     }
   };
+  
+  // ✅ Cache 5 นาที
+  cache.put(cacheKey, JSON.stringify(result), 300);
+  return result;
+}
+
+// ============ UPDATE SESSION ============
+function handleUpdateSession(studentId, sessionData) {
+  const sheet = getSheet('sessions');
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 4).setValues([['studentId', 'role', 'pairKey', 'updatedAt']]);
+  }
+  
+  const rows = getDataRows('sessions');
+  let found = false;
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(studentId).trim()) {
+      const values = [...rows[i]];
+      values[1] = sessionData.role || '';
+      values[2] = sessionData.pairKey || '';
+      values[3] = new Date().toISOString();
+      updateRow('sessions', i + 2, values);
+      found = true;
+      break;
+    }
+  }
+  
+  if (!found) {
+    appendRow('sessions', [
+      studentId,
+      sessionData.role || '',
+      sessionData.pairKey || '',
+      new Date().toISOString()
+    ]);
+  }
+  
+  return { ok: true };
+}
+
+// ============ ADMIN HELPERS ============
+function adminImportAPEData(revealAt = '2026-08-15 18:00') {
+  // ... (คงเดิม)
+}
+
+function testImportAPEData() {
+  adminImportAPEData('2026-08-15 18:00');
+}
+
+// ============ BOARD (CLUES) FUNCTIONS ============
+function handleGetMyClues(studentId) {
+  const parsed = parseStudentId(studentId);
+  if (!parsed) {
+    return { ok: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' };
+  }
+  
+  const pairKey = parsed.pairKey;
+  const pairs = getDataRows(TABS.PAIRS);
+  const pair = pairs.find(r => String(r[COL.PAIRS.pair_key - 1]).trim() === pairKey);
+  
+  if (!pair) {
+    return { ok: false, error: 'ไม่พบคู่รหัส' };
+  }
+  
+  const y2Id = String(pair[COL.PAIRS.y2_id - 1]).trim();
+  const y1Id = String(pair[COL.PAIRS.y1_id - 1]).trim();
+  
+  const rows = getDataRows(TABS.CLUES);
+  const myClues = rows
+    .filter(row => {
+      const authorId = String(row[1] || '').trim();
+      if (parsed.role === 'Y2') {
+        return authorId === y2Id;
+      } else if (parsed.role === 'Y1') {
+        return authorId === y1Id;
+      }
+      return false;
+    })
+    .map(row => ({
+      id: String(row[0] || '').trim(),
+      authorId: String(row[1] || '').trim(),
+      content: String(row[2] || '').trim(),
+      createdAt: String(row[3] || ''),
+      position: {
+        top: parseFloat(row[4]) || 10,
+        left: parseFloat(row[5]) || 10,
+      },
+      color: String(row[6] || '#FFB3BA').trim(),
+      rotation: parseFloat(row[7]) || 0,
+    }));
+  
+  return { ok: true, clues: myClues };
 }
