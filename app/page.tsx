@@ -17,12 +17,19 @@ export default function Home() {
     if (sessionData) {
       setSession(sessionData);
       setIsLoggedIn(true);
+    } else {
+      router.push('/login');
+      return;
     }
 
     checkNetworkStatus();
     const interval = setInterval(checkNetworkStatus, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [router]);
+
+  if (!isLoggedIn || !session) {
+    return null; // Or loading spinner
+  }
 
   const checkNetworkStatus = async () => {
     try {

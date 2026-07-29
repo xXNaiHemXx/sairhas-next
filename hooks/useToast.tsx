@@ -45,12 +45,12 @@ export function useToast() {
 
   return {
     toasts,
-    showToast,
-    removeToast,
     success,
     error,
     info,
     warning,
+    showToast,
+    removeToast,
   };
 }
 

@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getChatMessages, sendChatMessage, getMentors } from '@/lib/gasClient';
+import { getChatMessages, sendChatMessage, getMentors, Mentor, Message as GasMessage } from '@/lib/gasClient';
 import { getSession, Session } from '@/lib/session';
-import { useToast, ToastContainer } from '@/hooks/useToast';
+import { useToast } from '@/hooks/useToast';
+import { ToastContainer } from '@/hooks/useToast';
 
 interface Message {
   id: string;
@@ -15,28 +16,17 @@ interface Message {
   optimistic?: boolean; // Track if message is optimistic
 }
 
-interface Mentor {
-  id: string;
-  name: string;
-  ig: string;
-  line: string;
-  faculty: string;
-  year: string;
-  imageUrl?: string;
-  pairKey?: string;
-}
-
 export default function ChatPage() {
   const router = useRouter();
-  const { toast, ToastContainer } = useToast();
+  const { toasts, removeToast, error, success, info, warning, showToast } = useToast();
   const [session, setSession] = useState<Session | null>(null);
   const [mentors, setMentors] = useState<Mentor[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null);
+    const [isSending, setIsSending] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -60,28 +50,28 @@ export default function ChatPage() {
   }, [messages]);
 
   const loadMentors = async (session: Session) => {
-    setIsLoading(true);
-    try {
-          const result = await getMentors();
-          if (result.ok && result.mentors) {
-            setMentors(result.mentors);
-        
-            // ถ้าเป็น Y1 ให้เลือกพี่รหัสของตัวเองอัตโนมัติ
-            if (session.role === 'Y1') {
-              const myPairKey = session.pairKey || '';
-              const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
-              if (myMentor) {
-                setSelectedMentor(myMentor);
-              }
+      setIsLoading(true);
+      try {
+        const result = await getMentors();
+        if (result.ok && result.mentors) {
+          setMentors(result.mentors);
+
+          // ถ้าเป็น Y1 ให้เลือกพี่รหัสของตัวเองอัตโนมัติ
+          if (session.role === 'Y1') {
+            const myPairKey = session.pairKey || '';
+            const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
+            if (myMentor) {
+              setSelectedMentor(myMentor);
             }
           }
-        } catch (error) {
-          console.error('❌ Error loading mentors:', error);
-          toast.error('เกิดข้อผิดพลาดในการโหลดข้อมูล');
-        } finally {
-          setIsLoading(false);
         }
-  };
+      } catch (err) {
+                          console.error('❌ Error loading mentors:', err);
+                          error('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+                        } finally {
+              setIsLoading(false);
+            }
+    };
 
   const loadMessages = async () => {
     if (!session || !selectedMentor) return;
@@ -137,27 +127,27 @@ export default function ChatPage() {
       const result = await sendChatMessage(session.studentId, pairKey, messageToSend);
       
       if (result.ok && result.message) {
-              // แทนที่ optimistic message ด้วยข้อมูลจริง
-              setMessages(prev => 
-                prev.map(msg => 
-                  msg.id === tempId ? { ...result.message, optimistic: false } : msg
-                )
-              );
-              toast.success('ส่งข้อความสำเร็จ');
-            } else {
-              // Rollback ถ้าเกิด error
-              setMessages(prev => prev.filter(msg => msg.id !== tempId));
-              toast.error(result.error || 'ส่งข้อความไม่สำเร็จ');
-            }
-          } catch (error) {
-            console.error('❌ Error sending message:', error);
-            // Rollback
-            setMessages(prev => prev.filter(msg => msg.id !== tempId));
-            toast.error('เกิดข้อผิดพลาดในการส่งข้อความ');
-          } finally {
-            setIsSending(false);
-          }
-  };
+                          // แทนที่ optimistic message ด้วยข้อมูลจริง
+                          setMessages(prev => 
+                            prev.map(msg => 
+                              msg.id === tempId ? { ...result.message, optimistic: false } as Message : msg
+                            )
+                          );
+                          success('ส่งข้อความสำเร็จ');
+                  } else {
+                          // Rollback ถ้าเกิด error
+                          setMessages(prev => prev.filter(msg => msg.id !== tempId));
+                          error(result.error || 'ส่งข้อความไม่สำเร็จ');
+                        }
+          } catch (err) {
+                                console.error('❌ Error sending message:', err);
+                                // Rollback
+                                setMessages(prev => prev.filter(msg => msg.id !== tempId));
+                                error('เกิดข้อผิดพลาดในการส่งข้อความ');
+                    } finally {
+                      setIsSending(false);
+                    }
+            };
 
   // ฟังก์ชันเลือก mentor (สำหรับ Y2)
   const handleSelectMentor = (mentor: Mentor) => {

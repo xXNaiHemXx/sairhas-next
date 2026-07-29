@@ -1,13 +1,13 @@
 interface GasResponse<T = any> {
   ok: boolean;
   error?: string;
-  pair?: T;
-  messages?: T[];
+  pair?: Pair;  // GAS returns Pair object directly
+  messages?: T;  // T is already array type when callApi<Type[]>
   message?: T;
-  juniors?: T[];
+  juniors?: T;  // T is already array type when callApi<Type[]>
   reveal_at?: string;
   parsed?: any;
-  mentors?: T[];
+  mentors?: T;  // T is already array type when callApi<Type[]>
   profile?: T;
   clues?: T;
   clue?: T;
@@ -54,12 +54,30 @@ async function callApi<T>(payload: Record<string, any>): Promise<GasResponse<T>>
 
 // ============ API Functions ============
 
+export interface VerifyStudentIdResponse {
+  ok: boolean;
+  error?: string;
+  pair?: Pair;
+  parsed?: {
+    role: 'Y1' | 'Y2';
+    pairKey: string;
+  };
+}
+
 export async function verifyStudentId(studentId: string) {
-  return callApi({ action: 'verifyStudentId', student_id: studentId });
+  return callApi<VerifyStudentIdResponse>({ action: 'verifyStudentId', student_id: studentId });
+}
+
+// ============ Pair Types ============
+export interface Pair {
+  y1_id: string;
+  y2_id: string;
+  pair_key: string;
+  reveal_at: string;
 }
 
 export async function getPairByKey(pairKey: string) {
-  return callApi({ action: 'getPairByKey', pair_key: pairKey });
+  return callApi<Pair>({ action: 'getPairByKey', pair_key: pairKey });
 }
 
 export async function getAvailableJuniors() {
@@ -103,8 +121,19 @@ export async function checkNetwork() {
 }
 
 // ============ Mentor Functions ============
+export interface Mentor {
+  id: string;
+  name: string;
+  ig: string;
+  line: string;
+  faculty: string;
+  year: string;
+  imageUrl?: string;
+  pairKey?: string;
+}
+
 export async function getMentors() {
-  return callApi({ action: 'getMentors' });
+  return callApi<Mentor[]>({ action: 'getMentors' });
 }
 
 // ============ Profile Functions ============
@@ -165,8 +194,15 @@ export interface Clue {
 
 
 // ============ Chat Functions ============
+export interface Message {
+  id: string;
+  from_id: string;
+  content: string;
+  sent_at: string;
+}
+
 export async function getChatMessages(studentId: string, pairKey: string) {
-  return callApi({
+  return callApi<Message[]>({
     action: 'getChatMessages',
     student_id: studentId,
     pair_key: pairKey,
@@ -174,7 +210,7 @@ export async function getChatMessages(studentId: string, pairKey: string) {
 }
 
 export async function sendChatMessage(fromId: string, pairKey: string, content: string) {
-  return callApi({
+  return callApi<Message>({
     action: 'sendChatMessage',
     from_id: fromId,
     pair_key: pairKey,
