@@ -1,6 +1,6 @@
-// app/api/auth/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { pb } from '@/lib/pocketbase';
+import { SESSION_KEY, SESSION_DURATION_MS } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
   console.log('📤 [API] Auth route called');
@@ -81,7 +81,17 @@ export async function POST(request: NextRequest) {
       console.warn('⚠️ [API] No pair found for:', user.pairKey);
     }
     
-    return NextResponse.json({
+    // ✅ สร้าง session cookie
+    const expiresAt = Date.now() + SESSION_DURATION_MS;
+    const sessionData = {
+      studentId: user.studentId,
+      role: user.role,
+      pairKey: user.pairKey,
+      createdAt: Date.now(),
+      expiresAt,
+    };
+    
+    const response = NextResponse.json({
       ok: true,
       user: {
         id: user.id,
@@ -97,6 +107,17 @@ export async function POST(request: NextRequest) {
         revealAt: pair.revealAt,
       } : null,
     });
+    
+    // Set session cookie
+    response.cookies.set(SESSION_KEY, JSON.stringify(sessionData), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: SESSION_DURATION_MS / 1000,
+      path: '/',
+    });
+    
+    return response;
     
   } catch (error: any) {
     console.error('❌ [API] Auth error:', error.message);

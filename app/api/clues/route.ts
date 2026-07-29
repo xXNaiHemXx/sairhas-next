@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pb } from '@/lib/pocketbase';
-import { getSession } from '@/lib/session';
+import { getSessionFromRequest } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     if (!studentId) {
       return NextResponse.json({ ok: false, error: 'Missing studentId' }, { status: 400 });
     }
-    const session = await getSession();
+    const session = await getSessionFromRequest(request);
     if (!session) {
       return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 });
     }
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       filter: `authorId = "${studentId}"`,
       sort: '-created',
     });
-    return NextResponse.json({ ok: true, clues: result });
+    return NextResponse.json({ ok: true, clues: result.map(c => ({ ...c, position: { top: c.top, left: c.left } })) });
   } catch (error) {
     console.error('❌ [API] Clues GET error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to load clues' }, { status: 500 });
@@ -40,7 +40,13 @@ export async function POST(request: Request) {
       color: ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E8BAFF'][Math.floor(Math.random() * 6)],
       rotation: Math.floor(Math.random() * 20) - 10,
     });
-    return NextResponse.json({ ok: true, clue });
+    return NextResponse.json({ 
+      ok: true, 
+      clue: {
+        ...clue,
+        position: { top: clue.top, left: clue.left }
+      }
+    });
   } catch (error) {
     console.error('❌ [API] Clues POST error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to add clue' }, { status: 500 });

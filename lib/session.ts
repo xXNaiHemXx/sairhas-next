@@ -14,6 +14,8 @@ export interface Session {
 const SESSION_KEY = 'sairhas_session';
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+export { SESSION_KEY, SESSION_DURATION_MS };
+
 /**
  * Create a new session with expiry
  */
@@ -68,9 +70,12 @@ export function saveSession(session: Session): void {
 }
 
 /**
- * Get session from localStorage with validation
+ * Get session from localStorage with validation (client-side only)
  */
 export function getSession(): Session | null {
+  // This function is client-side only (uses localStorage)
+  if (typeof window === 'undefined') return null;
+  
   try {
     const stored = localStorage.getItem(SESSION_KEY);
     if (!stored) return null;
@@ -97,10 +102,39 @@ export function getSession(): Session | null {
 }
 
 /**
+ * Get session from request cookies (server-side)
+ */
+export async function getSessionFromRequest(request: Request): Promise<Session | null> {
+  try {
+    const cookieHeader = request.headers.get('cookie') || '';
+    const match = cookieHeader.match(new RegExp(`${SESSION_KEY}=([^;]+)`));
+    if (!match) return null;
+
+    const session = JSON.parse(decodeURIComponent(match[1])) as Session;
+
+    // Validate session structure
+    if (!session.studentId || !session.role || !session.pairKey) {
+      return null;
+    }
+
+    // Check expiry
+    if (Date.now() > session.expiresAt) {
+      return null;
+    }
+
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Clear session from localStorage
  */
 export function clearSession(): void {
-  localStorage.removeItem(SESSION_KEY);
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(SESSION_KEY);
+  }
 }
 
 /**

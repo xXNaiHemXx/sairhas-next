@@ -3,7 +3,9 @@ import { pb } from '@/lib/pocketbase';
 
 export async function GET(request: NextRequest) {
   try {
-    const result = await pb.collection('mentors').getFullList({
+    // Query users with role Y2 (mentors) instead of mentors collection
+    const result = await pb.collection('users').getFullList({
+      filter: 'role = "Y2"',
       sort: '-created',
     });
     return NextResponse.json({ ok: true, mentors: result });
