@@ -4,23 +4,19 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { checkNetwork } from '@/lib/gasClient';
+import { getSession, clearSession, Session } from '@/lib/session';
 
 export default function Home() {
   const router = useRouter();
   const [isOnline, setIsOnline] = useState(true);
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('session');
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession);
-        setSession(parsed);
-        setIsLoggedIn(true);
-      } catch (e) {
-        console.error('Failed to parse session');
-      }
+    const sessionData = getSession();
+    if (sessionData) {
+      setSession(sessionData);
+      setIsLoggedIn(true);
     }
 
     checkNetworkStatus();
@@ -38,10 +34,10 @@ export default function Home() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('session');
+    clearSession();
     setIsLoggedIn(false);
     setSession(null);
-    router.push('/');
+    router.push('/login');
   };
 
   if (!isLoggedIn) {

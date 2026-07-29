@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getProfile, updateProfile } from '@/lib/gasClient'; // ✅ import ฟังก์ชัน
+import { getSession, Session } from '@/lib/session';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState({
     name: '',
     faculty: 'APE/TME',
@@ -22,15 +23,14 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('session');
-    if (!savedSession) {
+    const sessionData = getSession();
+    if (!sessionData) {
       router.push('/login');
       return;
     }
     try {
-      const parsed = JSON.parse(savedSession);
-      setSession(parsed);
-      loadProfile(parsed.studentId);
+      setSession(sessionData);
+      loadProfile(sessionData.studentId);
     } catch (e) {
       router.push('/login');
     }

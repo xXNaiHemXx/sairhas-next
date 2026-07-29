@@ -4,12 +4,15 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getChatMessages, sendChatMessage, getMentors } from '@/lib/gasClient';
+import { getSession, Session } from '@/lib/session';
+import { useToast, ToastContainer } from '@/hooks/useToast';
 
 interface Message {
   id: string;
   from_id: string;
   content: string;
   sent_at: string;
+  optimistic?: boolean; // Track if message is optimistic
 }
 
 interface Mentor {
@@ -25,7 +28,8 @@ interface Mentor {
 
 export default function ChatPage() {
   const router = useRouter();
-  const [session, setSession] = useState<any>(null);
+  const { toast, ToastContainer } = useToast();
+  const [session, setSession] = useState<Session | null>(null);
   const [mentors, setMentors] = useState<Mentor[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -37,15 +41,14 @@ export default function ChatPage() {
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('session');
-    if (!savedSession) {
+    const sessionData = getSession();
+    if (!sessionData) {
       router.push('/login');
       return;
     }
     try {
-      const parsed = JSON.parse(savedSession);
-      setSession(parsed);
-      loadMentors(parsed);
+      setSession(sessionData);
+      loadMentors(sessionData);
     } catch (e) {
       console.error('❌ Failed to parse session:', e);
       router.push('/login');
@@ -56,28 +59,28 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const loadMentors = async (session: any) => {
+  const loadMentors = async (session: Session) => {
     setIsLoading(true);
     try {
-      const result = await getMentors();
-      if (result.ok && result.mentors) {
-        setMentors(result.mentors);
+          const result = await getMentors();
+          if (result.ok && result.mentors) {
+            setMentors(result.mentors);
         
-        // ถ้าเป็น Y1 ให้เลือกพี่รหัสของตัวเองอัตโนมัติ
-        if (session.role === 'Y1') {
-          const myPairKey = session.pairKey || '';
-          const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
-          if (myMentor) {
-            setSelectedMentor(myMentor);
+            // ถ้าเป็น Y1 ให้เลือกพี่รหัสของตัวเองอัตโนมัติ
+            if (session.role === 'Y1') {
+              const myPairKey = session.pairKey || '';
+              const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
+              if (myMentor) {
+                setSelectedMentor(myMentor);
+              }
+            }
           }
+        } catch (error) {
+          console.error('❌ Error loading mentors:', error);
+          toast.error('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+        } finally {
+          setIsLoading(false);
         }
-      }
-    } catch (error) {
-      console.error('❌ Error loading mentors:', error);
-      setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
-    } finally {
-      setIsLoading(false);
-    }
   };
 
   const loadMessages = async () => {
@@ -113,23 +116,47 @@ export default function ChatPage() {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !session || !selectedMentor || isSending) return;
 
+    // Optimistic UI: สร้างข้อความชั่วคราวและเพิ่มทันที
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      from_id: session.studentId,
+      content: newMessage.trim(),
+      sent_at: new Date().toISOString(),
+      optimistic: true,
+    };
+
+    // เพิ่มข้อความทันที (optimistic)
+    setMessages(prev => [...prev, optimisticMessage]);
+    const messageToSend = newMessage.trim();
+    setNewMessage('');
+
     setIsSending(true);
     try {
       const pairKey = session.pairKey || selectedMentor.pairKey || '';
-      const result = await sendChatMessage(session.studentId, pairKey, newMessage.trim());
+      const result = await sendChatMessage(session.studentId, pairKey, messageToSend);
       
       if (result.ok && result.message) {
-        setMessages(prev => [...prev, result.message]);
-        setNewMessage('');
-      } else {
-        alert(result.error || 'ส่งข้อความไม่สำเร็จ');
-      }
-    } catch (error) {
-      console.error('❌ Error sending message:', error);
-      alert('เกิดข้อผิดพลาดในการส่งข้อความ');
-    } finally {
-      setIsSending(false);
-    }
+              // แทนที่ optimistic message ด้วยข้อมูลจริง
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === tempId ? { ...result.message, optimistic: false } : msg
+                )
+              );
+              toast.success('ส่งข้อความสำเร็จ');
+            } else {
+              // Rollback ถ้าเกิด error
+              setMessages(prev => prev.filter(msg => msg.id !== tempId));
+              toast.error(result.error || 'ส่งข้อความไม่สำเร็จ');
+            }
+          } catch (error) {
+            console.error('❌ Error sending message:', error);
+            // Rollback
+            setMessages(prev => prev.filter(msg => msg.id !== tempId));
+            toast.error('เกิดข้อผิดพลาดในการส่งข้อความ');
+          } finally {
+            setIsSending(false);
+          }
   };
 
   // ฟังก์ชันเลือก mentor (สำหรับ Y2)
@@ -477,12 +504,13 @@ export default function ChatPage() {
         }
 
         @media (max-width: 480px) {
-          .chat-container {
-            height: calc(100vh - 160px);
-            min-height: 300px;
-          }
+                  .chat-container {
+                    height: calc(100vh - 160px);
+                    min-height: 300px;
+                  }
+                }
+              `}</style>
+              <ToastContainer toasts={toasts} onRemove={removeToast} />
+            </div>
+          );
         }
-      `}</style>
-    </div>
-  );
-}

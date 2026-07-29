@@ -145,6 +145,15 @@ function doPost(e) {
       case 'deleteClue':
         result = handleDeleteClue(payload.clue_id, payload.author_id);
         break;
+      case 'getChatMessages':
+        result = handleGetChatMessages(payload.student_id, payload.pair_key);
+        break;
+      case 'sendChatMessage':
+        result = handleSendChatMessage(payload.from_id, payload.pair_key, payload.content);
+        break;
+      case 'getMyJunior':
+        result = handleGetMyJunior(payload.y2_id);
+        break;
       default:
         result = { ok: false, error: 'Unknown action: ' + action };
     }
@@ -533,6 +542,75 @@ function handleDeleteClue(clueId, authorId) {
     }
   }
   return { ok: false, error: 'ไม่พบคำใบ้' };
+}
+
+// ============ CHAT FUNCTIONS ============
+function handleGetChatMessages(studentId, pairKey) {
+  const rows = getDataRows(TABS.MESSAGES);
+  const messages = rows
+    .filter(r => {
+      const key = String(r[COL.MESSAGES.pair_key - 1]).trim();
+      return key === String(pairKey).trim();
+    })
+    .map(r => {
+      const fromId = String(r[COL.MESSAGES.from_id - 1] || '').trim();
+      const content = String(r[COL.MESSAGES.content - 1] || '').trim();
+      const type = String(r[COL.MESSAGES.type - 1] || 'custom').trim();
+      
+      return {
+        id: String(r[COL.MESSAGES.id - 1] || ''),
+        pair_key: String(r[COL.MESSAGES.pair_key - 1] || ''),
+        from_id: fromId,
+        content: content,
+        type: type,
+        sent_at: String(r[COL.MESSAGES.sent_at - 1] || ''),
+        read_at: String(r[COL.MESSAGES.read_at - 1] || null)
+      };
+    })
+    .sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at));
+
+  return { ok: true, messages };
+}
+
+function handleSendChatMessage(fromId, pairKey, content) {
+  if (!content || content.trim().length === 0) return { ok: false, error: 'ข้อความว่าง' };
+  if (content.length > 500) return { ok: false, error: 'ข้อความยาวเกิน 500 ตัวอักษร' };
+
+  const msgId = Utilities.getUuid();
+  const now = new Date().toISOString();
+  appendRow(TABS.MESSAGES, [msgId, pairKey, fromId, content.trim(), 'custom', now, '']);
+  return { ok: true, message: { id: msgId, pair_key: pairKey, from_id: fromId, content: content.trim(), type: 'custom', sent_at: now } };
+}
+
+// ============ GET MY JUNIOR ============
+function handleGetMyJunior(y2Id) {
+  const pairs = getDataRows(TABS.PAIRS);
+  const myPair = pairs.find(r => {
+    const y2 = String(r[COL.PAIRS.y2_id - 1]).trim();
+    return y2 === String(y2Id).trim();
+  });
+  
+  if (!myPair) {
+    return { ok: true, junior: null };
+  }
+  
+  const y1Id = String(myPair[COL.PAIRS.y1_id - 1]).trim();
+  const pairKey = String(myPair[COL.PAIRS.pair_key - 1]).trim();
+  
+  if (!y1Id) {
+    return { ok: true, junior: null };
+  }
+  
+  const parsed = parseStudentId(y1Id);
+  return {
+    ok: true,
+    junior: {
+      y1_id: y1Id,
+      pair_key: pairKey,
+      core: parsed ? parsed.core : 'APE/TME',
+      suffix: pairKey
+    }
+  };
 }
 
 // ============ ADMIN HELPERS ============

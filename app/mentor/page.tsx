@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getMentors } from '@/lib/gasClient';
+import { getSession, clearSession, Session } from '@/lib/session';
 
 interface Mentor {
   id: string;
@@ -18,30 +19,24 @@ interface Mentor {
 
 export default function MentorPage() {
   const router = useRouter();
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [mentors, setMentors] = useState<Mentor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [myMentor, setMyMentor] = useState<Mentor | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('session');
-    if (!savedSession) {
+    const sessionData = getSession();
+    if (!sessionData) {
       router.push('/login');
       return;
     }
-    try {
-      const parsed = JSON.parse(savedSession);
-      console.log('🔍 Session loaded:', parsed);
-      setSession(parsed);
-      loadMentors(parsed);
-    } catch (e) {
-      console.error('❌ Failed to parse session:', e);
-      router.push('/login');
-    }
+    console.log('🔍 Session loaded:', sessionData);
+    setSession(sessionData);
+    loadMentors(sessionData);
   }, [router]);
 
-  const loadMentors = async (session: any) => {
+  const loadMentors = async (session: Session) => {
     setIsLoading(true);
     setError(null);
     try {
