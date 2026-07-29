@@ -3,17 +3,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getProfile, updateProfile } from '@/lib/gasClient'; // ✅ import ฟังก์ชัน
+import { getProfile, updateProfile } from '@/lib/gasClient';
 import { getSession, Session } from '@/lib/session';
+import { useToast, ToastContainer } from '@/hooks/useToast';
 
 export default function ProfilePage() {
   const router = useRouter();
+  const { addToast, removeToast, toasts } = useToast();
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState({
-    name: '',
+    nickname: '', // ✅ เปลี่ยนเป็นชื่อเล่น
     faculty: 'APE/TME',
-    year: '',
-    bio: '',
     ig: '',
     line: '',
     imageUrl: '',
@@ -28,15 +28,10 @@ export default function ProfilePage() {
       router.push('/login');
       return;
     }
-    try {
-      setSession(sessionData);
-      loadProfile(sessionData.studentId);
-    } catch (e) {
-      router.push('/login');
-    }
+    setSession(sessionData);
+    loadProfile(sessionData.studentId);
   }, [router]);
 
-  // ✅ แก้ไข: ดึงข้อมูลจาก API
   const loadProfile = async (studentId: string) => {
     setIsLoading(true);
     try {
@@ -44,24 +39,11 @@ export default function ProfilePage() {
       
       if (result.ok && result.profile) {
         setProfile({
-          name: result.profile.name || '',
+          nickname: result.profile.nickname || '',
           faculty: result.profile.faculty || 'APE/TME',
-          year: 'ปี 68', // หรือดึงจากที่อื่น
-          bio: '',
           ig: result.profile.ig || '',
           line: result.profile.line || '',
           imageUrl: result.profile.imageUrl || '',
-        });
-      } else {
-        // ถ้ายังไม่มีโปรไฟล์ ให้ใช้ค่าว่าง
-        setProfile({
-          name: '',
-          faculty: 'APE/TME',
-          year: 'ปี 68',
-          bio: '',
-          ig: '',
-          line: '',
-          imageUrl: '',
         });
       }
     } catch (error) {
@@ -85,18 +67,16 @@ export default function ProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  // ✅ แก้ไข: บันทึกข้อมูลผ่าน API
   const handleSave = async () => {
-    if (!profile.name.trim()) {
-      alert('กรุณากรอกชื่อ-นามสกุล');
+    if (!profile.nickname.trim()) {
+      addToast('กรุณากรอกชื่อเล่น', 'error');
       return;
     }
 
     setIsSaving(true);
     try {
-      // ✅ เรียก API updateProfile
-      const result = await updateProfile(session.studentId, {
-        name: profile.name,
+      const result = await updateProfile(session!.studentId, {
+        nickname: profile.nickname,
         faculty: profile.faculty,
         ig: profile.ig,
         line: profile.line,
@@ -104,14 +84,13 @@ export default function ProfilePage() {
       });
 
       if (result.ok) {
-        alert('💾 บันทึกโปรไฟล์สำเร็จ!');
-        // ✅ โหลดข้อมูลใหม่
-        await loadProfile(session.studentId);
+        addToast('💾 บันทึกโปรไฟล์สำเร็จ!', 'success');
+        await loadProfile(session!.studentId);
       } else {
-        alert(result.error || 'เกิดข้อผิดพลาดในการบันทึก');
+        addToast(result.error || 'เกิดข้อผิดพลาด', 'error');
       }
     } catch (error) {
-      alert('เกิดข้อผิดพลาดในการบันทึก');
+      addToast('เกิดข้อผิดพลาดในการบันทึก', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -177,15 +156,15 @@ export default function ProfilePage() {
             </p>
           </div>
 
-          {/* ฟอร์มข้อมูล */}
+          {/* ✅ ฟอร์มข้อมูล - ใช้ชื่อเล่น */}
           <div className="input-group" style={{ marginTop: '16px' }}>
-            <label className="input-label">ชื่อ-นามสกุล <span style={{ color: 'var(--error)' }}>*</span></label>
+            <label className="input-label">ชื่อเล่น <span style={{ color: 'var(--error)' }}>*</span></label>
             <input
               type="text"
               className="input-field"
-              value={profile.name}
-              onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="กรอกชื่อ-นามสกุล"
+              value={profile.nickname}
+              onChange={(e) => setProfile(prev => ({ ...prev, nickname: e.target.value }))}
+              placeholder="กรอกชื่อเล่น"
             />
           </div>
 
@@ -201,17 +180,6 @@ export default function ProfilePage() {
           </div>
 
           <div className="input-group" style={{ marginTop: '12px' }}>
-            <label className="input-label">บทบาท</label>
-            <input
-              type="text"
-              className="input-field"
-              value={session.role === 'Y2' ? 'พี่รหัส (Y2)' : 'น้องรหัส (Y1)'}
-              disabled
-              style={{ background: 'var(--bg-soft)', cursor: 'not-allowed' }}
-            />
-          </div>
-
-          <div className="input-group" style={{ marginTop: '12px' }}>
             <label className="input-label">คณะ/สาขา</label>
             <input
               type="text"
@@ -219,17 +187,6 @@ export default function ProfilePage() {
               value={profile.faculty}
               onChange={(e) => setProfile(prev => ({ ...prev, faculty: e.target.value }))}
               placeholder="เช่น APE/TME"
-            />
-          </div>
-
-          <div className="input-group" style={{ marginTop: '12px' }}>
-            <label className="input-label">ปีการศึกษา</label>
-            <input
-              type="text"
-              className="input-field"
-              value={profile.year}
-              onChange={(e) => setProfile(prev => ({ ...prev, year: e.target.value }))}
-              placeholder="เช่น ปี 68"
             />
           </div>
 
@@ -255,18 +212,6 @@ export default function ProfilePage() {
             />
           </div>
 
-          <div className="input-group" style={{ marginTop: '12px' }}>
-            <label className="input-label">เกี่ยวกับฉัน</label>
-            <textarea
-              className="input-field"
-              value={profile.bio}
-              onChange={(e) => setProfile(prev => ({ ...prev, bio: e.target.value }))}
-              placeholder="เล่าเกี่ยวกับตัวเอง..."
-              rows={4}
-              style={{ resize: 'vertical', minHeight: '80px' }}
-            />
-          </div>
-
           <button
             className="btn btn-primary btn-block"
             onClick={handleSave}
@@ -284,6 +229,8 @@ export default function ProfilePage() {
           </button>
         </div>
       )}
+
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <style>{`
         .profile-image-container {
@@ -315,10 +262,6 @@ export default function ProfilePage() {
         .profile-image-placeholder {
           font-size: 2.5rem;
           color: var(--fg-muted);
-        }
-
-        textarea.input-field {
-          font-family: var(--font-sans);
         }
       `}</style>
     </div>

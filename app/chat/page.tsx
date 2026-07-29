@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getChatMessages, sendChatMessage, getMentors } from '@/lib/gasClient';
+import { getChatMessages, sendChatMessage, getMyPair } from '@/lib/gasClient';
 import { getSession, Session } from '@/lib/session';
 import { useToast, ToastContainer } from '@/hooks/useToast';
 
@@ -15,81 +15,72 @@ interface Message {
   optimistic?: boolean;
 }
 
-interface Mentor {
+interface Partner {
   id: string;
-  name: string;
-  ig: string;
-  line: string;
+  nickname: string;  // ✅ เปลี่ยนเป็น nickname
   faculty: string;
-  year: string;
   imageUrl?: string;
-  pairKey?: string;
+  pairKey: string;
+  role: string;
 }
 
 export default function ChatPage() {
   const router = useRouter();
   const { addToast, removeToast, toasts } = useToast();
   const [session, setSession] = useState<Session | null>(null);
-  const [mentors, setMentors] = useState<Mentor[]>([]);
+  const [partner, setPartner] = useState<Partner | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const sessionData = getSession();
-    console.log('🔍 [Chat] Session from getSession():', sessionData);
-   if (!sessionData) {
-      console.log('❌ [Chat] No session, redirecting to login');
+    console.log('🔍 [Chat] Session:', sessionData);
+    
+    if (!sessionData) {
       router.push('/login');
       return;
+    }
     
-    }
-    try {
-      setSession(sessionData);
-      loadMentors(sessionData);
-    } catch (e) {
-      console.error('❌ Failed to parse session:', e);
-      router.push('/login');
-    }
+    setSession(sessionData);
+    loadPartner(sessionData);
   }, [router]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const loadMentors = async (session: Session) => {
+  // ✅ โหลดคู่รหัสของตัวเอง
+  const loadPartner = async (session: Session) => {
     setIsLoading(true);
+    setError(null);
     try {
-      const result = await getMentors();
-      if (result.ok && result.mentors) {
-        setMentors(result.mentors);
-        
-        if (session.role === 'Y1') {
-          const myPairKey = session.pairKey || '';
-          const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
-          if (myMentor) {
-            setSelectedMentor(myMentor);
-          }
-        }
+      const result = await getMyPair(session.studentId);
+      console.log('🔍 [Chat] getMyPair result:', result);
+      
+      if (result.ok && result.partner) {
+        setPartner(result.partner);
+      } else {
+        setError(result.error || 'ไม่พบคู่รหัสของคุณ');
       }
     } catch (error) {
-      console.error('❌ Error loading mentors:', error);
-      addToast('เกิดข้อผิดพลาดในการโหลดข้อมูล', 'error');
+      console.error('❌ Error loading partner:', error);
+      setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
     } finally {
       setIsLoading(false);
     }
   };
 
+  // ✅ โหลดข้อความ
   const loadMessages = async () => {
-    if (!session || !selectedMentor) return;
+    if (!session || !partner) return;
     
     try {
-      const pairKey = session.pairKey || selectedMentor.pairKey || '';
+      const pairKey = session.pairKey || partner.pairKey || '';
       const result = await getChatMessages(session.studentId, pairKey);
       
       if (result.ok && result.messages) {
@@ -100,8 +91,9 @@ export default function ChatPage() {
     }
   };
 
+  // โหลดข้อความเมื่อมี partner
   useEffect(() => {
-    if (selectedMentor && session) {
+    if (partner && session) {
       loadMessages();
       
       if (pollingInterval.current) clearInterval(pollingInterval.current);
@@ -111,10 +103,10 @@ export default function ChatPage() {
     return () => {
       if (pollingInterval.current) clearInterval(pollingInterval.current);
     };
-  }, [selectedMentor, session]);
+  }, [partner, session]);
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !session || !selectedMentor || isSending) return;
+    if (!newMessage.trim() || !session || !partner || isSending) return;
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const optimisticMessage: Message = {
@@ -131,7 +123,7 @@ export default function ChatPage() {
     setIsSending(true);
 
     try {
-      const pairKey = session.pairKey || selectedMentor.pairKey || '';
+      const pairKey = session.pairKey || partner.pairKey || '';
       const result = await sendChatMessage(session.studentId, pairKey, messageToSend);
       
       if (result.ok && result.message) {
@@ -154,11 +146,6 @@ export default function ChatPage() {
     }
   };
 
-  const handleSelectMentor = (mentor: Mentor) => {
-    setSelectedMentor(mentor);
-    setMessages([]);
-  };
-
   if (!session) {
     return (
       <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -170,157 +157,25 @@ export default function ChatPage() {
     );
   }
 
-  // Y1: ยังไม่มี mentor
-  if (session.role === 'Y1' && !selectedMentor && !isLoading) {
-    return (
-      <div className="app">
-        <header className="chat-header">
-          <div className="chat-header-left">
-            <Link href="/" className="btn btn-ghost" style={{ padding: '4px 8px' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
-            </Link>
-            <span className="h2" style={{ fontSize: '1.2rem' }}>💬 แชท</span>
-          </div>
-          <div className="chat-header-right">
-            <span className="badge badge-matched">น้อง (Y1)</span>
-          </div>
-        </header>
-        <div className="card text-center">
-          <p className="body-sm">ไม่พบพี่รหัสของคุณ</p>
-          <p className="body-sm" style={{ color: 'var(--fg-muted)', fontSize: '0.85rem' }}>
-            กรุณาติดต่อแอดมินเพื่อจับคู่
-          </p>
-        </div>
-        <ToastContainer toasts={toasts} removeToast={removeToast} />
-      </div>
-    );
-  }
-
-  // Y2: เลือกแชท
-  if (session.role === 'Y2' && !selectedMentor && !isLoading) {
-    const availableMentors = mentors.filter(m => m.id !== session.studentId);
-    
-    return (
-      <div className="app">
-        <header className="chat-header">
-          <div className="chat-header-left">
-            <Link href="/" className="btn btn-ghost" style={{ padding: '4px 8px' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
-            </Link>
-            <span className="h2" style={{ fontSize: '1.2rem' }}>💬 เลือกแชท</span>
-          </div>
-          <div className="chat-header-right">
-            <span className="badge badge-matched">พี่ (Y2)</span>
-          </div>
-        </header>
-
-        {availableMentors.length === 0 ? (
-          <div className="card text-center">
-            <p className="body-sm">ยังไม่มีน้องรหัสให้แชท</p>
-          </div>
-        ) : (
-          availableMentors.map((mentor) => (
-            <div key={mentor.id} className="mentor-card" onClick={() => handleSelectMentor(mentor)}>
-              <div className="mentor-avatar">
-                {mentor.imageUrl ? (
-                  <img src={mentor.imageUrl} alt={mentor.name} />
-                ) : (
-                  <span className="avatar-placeholder">👤</span>
-                )}
-              </div>
-              <div className="mentor-info">
-                <h3 className="mentor-name">{mentor.name || 'ไม่ระบุชื่อ'}</h3>
-                <p className="mentor-details">{mentor.faculty || 'APE/TME'}</p>
-              </div>
-              <div className="mentor-action">
-                <span className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '0.8rem' }}>
-                  💬 แชท
-                </span>
-              </div>
-            </div>
-          ))
-        )}
-
-        <ToastContainer toasts={toasts} removeToast={removeToast} />
-
-        <style>{`
-          .mentor-card {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 14px 16px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            margin-bottom: 10px;
-            transition: all var(--transition);
-            cursor: pointer;
-          }
-
-          .mentor-card:hover {
-            border-color: var(--primary-strong);
-            box-shadow: var(--shadow);
-            transform: translateX(4px);
-          }
-
-          .mentor-avatar {
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            background: var(--secondary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            overflow: hidden;
-          }
-
-          .mentor-avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-          }
-
-          .avatar-placeholder {
-            font-size: 1.8rem;
-            color: var(--fg-muted);
-          }
-
-          .mentor-info {
-            flex: 1;
-            min-width: 0;
-          }
-
-          .mentor-name {
-            font-size: 1rem;
-            font-weight: 600;
-            margin: 0;
-          }
-
-          .mentor-details {
-            font-size: 0.8rem;
-            color: var(--fg-muted);
-            margin: 2px 0;
-          }
-
-          .mentor-action {
-            flex-shrink: 0;
-          }
-        `}</style>
-      </div>
-    );
-  }
-
-  if (!selectedMentor) {
+  if (isLoading) {
     return (
       <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
         <div className="card text-center" style={{ maxWidth: '320px' }}>
           <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
-          <p className="body-sm">กำลังโหลด...</p>
+          <p className="body-sm">กำลังโหลดข้อมูล...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !partner) {
+    return (
+      <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div className="card text-center" style={{ maxWidth: '320px', background: 'var(--error)', borderColor: 'var(--error)' }}>
+          <p className="body-sm" style={{ color: 'var(--fg)' }}>❌ {error || 'ไม่พบคู่รหัส'}</p>
+          <Link href="/" className="btn btn-primary" style={{ marginTop: '12px' }}>
+            ← กลับหน้าหลัก
+          </Link>
         </div>
       </div>
     );
@@ -331,39 +186,30 @@ export default function ChatPage() {
     <div className="app" style={{ paddingBottom: '20px' }}>
       <header className="chat-header">
         <div className="chat-header-left">
-          <button 
-            className="btn btn-ghost" 
-            onClick={() => {
-              setSelectedMentor(null);
-              setMessages([]);
-            }}
-            style={{ padding: '4px 8px' }}
-          >
+          <Link href="/" className="btn btn-ghost" style={{ padding: '4px 8px' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
-          </button>
+          </Link>
           <span className="h2" style={{ fontSize: '1.2rem' }}>
-            💬 {selectedMentor.name || 'ไม่ระบุชื่อ'}
+            💬 {partner.nickname || partner.id}
           </span>
         </div>
         <div className="chat-header-right">
           <span className="badge badge-matched">
             {session.role === 'Y2' ? 'พี่รหัส' : 'น้องรหัส'}
           </span>
+          <span className="badge badge-matched" style={{ backgroundColor: '#e3e7f8', color: '#6575ac' }}>
+            🔑 {partner.pairKey}
+          </span>
         </div>
       </header>
 
       <div className="chat-container">
         <div className="messages-area">
-          {isLoading ? (
+          {messages.length === 0 ? (
             <div className="empty-state">
-              <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
-              <p className="body-sm">กำลังโหลดข้อความ...</p>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="empty-state">
-              <p className="body-sm">เริ่มพูดคุยกันเลย! 💬</p>
+              <p className="body-sm">เริ่มพูดคุยกับ {partner.nickname || partner.id} กันเลย! 💬</p>
             </div>
           ) : (
             messages.map((msg) => {
@@ -388,7 +234,7 @@ export default function ChatPage() {
             <input
               type="text"
               className="input-field"
-              placeholder={`พิมพ์ข้อความถึง ${selectedMentor.name}...`}
+              placeholder={`พิมพ์ข้อความถึง ${partner.nickname || partner.id}...`}
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
