@@ -12,7 +12,7 @@ interface Message {
   from_id: string;
   content: string;
   sent_at: string;
-  optimistic?: boolean; // Track if message is optimistic
+  optimistic?: boolean;
 }
 
 interface Mentor {
@@ -28,7 +28,7 @@ interface Mentor {
 
 export default function ChatPage() {
   const router = useRouter();
-  const { toast, ToastContainer } = useToast();
+  const { addToast, removeToast, toasts } = useToast();
   const [session, setSession] = useState<Session | null>(null);
   const [mentors, setMentors] = useState<Mentor[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -42,9 +42,12 @@ export default function ChatPage() {
 
   useEffect(() => {
     const sessionData = getSession();
-    if (!sessionData) {
+    console.log('🔍 [Chat] Session from getSession():', sessionData);
+   if (!sessionData) {
+      console.log('❌ [Chat] No session, redirecting to login');
       router.push('/login');
       return;
+    
     }
     try {
       setSession(sessionData);
@@ -62,25 +65,24 @@ export default function ChatPage() {
   const loadMentors = async (session: Session) => {
     setIsLoading(true);
     try {
-          const result = await getMentors();
-          if (result.ok && result.mentors) {
-            setMentors(result.mentors);
+      const result = await getMentors();
+      if (result.ok && result.mentors) {
+        setMentors(result.mentors);
         
-            // ถ้าเป็น Y1 ให้เลือกพี่รหัสของตัวเองอัตโนมัติ
-            if (session.role === 'Y1') {
-              const myPairKey = session.pairKey || '';
-              const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
-              if (myMentor) {
-                setSelectedMentor(myMentor);
-              }
-            }
+        if (session.role === 'Y1') {
+          const myPairKey = session.pairKey || '';
+          const myMentor = result.mentors.find((m: Mentor) => m.pairKey === myPairKey);
+          if (myMentor) {
+            setSelectedMentor(myMentor);
           }
-        } catch (error) {
-          console.error('❌ Error loading mentors:', error);
-          toast.error('เกิดข้อผิดพลาดในการโหลดข้อมูล');
-        } finally {
-          setIsLoading(false);
         }
+      }
+    } catch (error) {
+      console.error('❌ Error loading mentors:', error);
+      addToast('เกิดข้อผิดพลาดในการโหลดข้อมูล', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const loadMessages = async () => {
@@ -98,12 +100,10 @@ export default function ChatPage() {
     }
   };
 
-  // โหลดข้อความเมื่อเลือก mentor
   useEffect(() => {
     if (selectedMentor && session) {
       loadMessages();
       
-      // Polling ทุก 5 วินาที
       if (pollingInterval.current) clearInterval(pollingInterval.current);
       pollingInterval.current = setInterval(loadMessages, 5000);
     }
@@ -116,8 +116,7 @@ export default function ChatPage() {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !session || !selectedMentor || isSending) return;
 
-    // Optimistic UI: สร้างข้อความชั่วคราวและเพิ่มทันที
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const optimisticMessage: Message = {
       id: tempId,
       from_id: session.studentId,
@@ -126,40 +125,35 @@ export default function ChatPage() {
       optimistic: true,
     };
 
-    // เพิ่มข้อความทันที (optimistic)
     setMessages(prev => [...prev, optimisticMessage]);
     const messageToSend = newMessage.trim();
     setNewMessage('');
-
     setIsSending(true);
+
     try {
       const pairKey = session.pairKey || selectedMentor.pairKey || '';
       const result = await sendChatMessage(session.studentId, pairKey, messageToSend);
       
       if (result.ok && result.message) {
-              // แทนที่ optimistic message ด้วยข้อมูลจริง
-              setMessages(prev => 
-                prev.map(msg => 
-                  msg.id === tempId ? { ...result.message, optimistic: false } : msg
-                )
-              );
-              toast.success('ส่งข้อความสำเร็จ');
-            } else {
-              // Rollback ถ้าเกิด error
-              setMessages(prev => prev.filter(msg => msg.id !== tempId));
-              toast.error(result.error || 'ส่งข้อความไม่สำเร็จ');
-            }
-          } catch (error) {
-            console.error('❌ Error sending message:', error);
-            // Rollback
-            setMessages(prev => prev.filter(msg => msg.id !== tempId));
-            toast.error('เกิดข้อผิดพลาดในการส่งข้อความ');
-          } finally {
-            setIsSending(false);
-          }
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === tempId ? { ...result.message, optimistic: false } : msg
+          )
+        );
+        addToast('ส่งข้อความสำเร็จ', 'success');
+      } else {
+        setMessages(prev => prev.filter(msg => msg.id !== tempId));
+        addToast(result.error || 'ส่งข้อความไม่สำเร็จ', 'error');
+      }
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+      setMessages(prev => prev.filter(msg => msg.id !== tempId));
+      addToast('เกิดข้อผิดพลาดในการส่งข้อความ', 'error');
+    } finally {
+      setIsSending(false);
+    }
   };
 
-  // ฟังก์ชันเลือก mentor (สำหรับ Y2)
   const handleSelectMentor = (mentor: Mentor) => {
     setSelectedMentor(mentor);
     setMessages([]);
@@ -176,7 +170,7 @@ export default function ChatPage() {
     );
   }
 
-  // ถ้าเป็น Y1 และยังไม่มี selectedMentor
+  // Y1: ยังไม่มี mentor
   if (session.role === 'Y1' && !selectedMentor && !isLoading) {
     return (
       <div className="app">
@@ -199,12 +193,15 @@ export default function ChatPage() {
             กรุณาติดต่อแอดมินเพื่อจับคู่
           </p>
         </div>
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
       </div>
     );
   }
 
-  // ถ้าเป็น Y2 ให้เลือกว่าแชทกับน้องคนไหน
+  // Y2: เลือกแชท
   if (session.role === 'Y2' && !selectedMentor && !isLoading) {
+    const availableMentors = mentors.filter(m => m.id !== session.studentId);
+    
     return (
       <div className="app">
         <header className="chat-header">
@@ -221,34 +218,34 @@ export default function ChatPage() {
           </div>
         </header>
 
-        {mentors.filter(m => m.id !== session.studentId).length === 0 ? (
+        {availableMentors.length === 0 ? (
           <div className="card text-center">
             <p className="body-sm">ยังไม่มีน้องรหัสให้แชท</p>
           </div>
         ) : (
-          mentors
-            .filter(m => m.id !== session.studentId)
-            .map((mentor) => (
-              <div key={mentor.id} className="mentor-card" onClick={() => handleSelectMentor(mentor)}>
-                <div className="mentor-avatar">
-                  {mentor.imageUrl ? (
-                    <img src={mentor.imageUrl} alt={mentor.name} />
-                  ) : (
-                    <span className="avatar-placeholder">👤</span>
-                  )}
-                </div>
-                <div className="mentor-info">
-                  <h3 className="mentor-name">{mentor.name || 'ไม่ระบุชื่อ'}</h3>
-                  <p className="mentor-details">{mentor.faculty || 'APE/TME'}</p>
-                </div>
-                <div className="mentor-action">
-                  <span className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '0.8rem' }}>
-                    💬 แชท
-                  </span>
-                </div>
+          availableMentors.map((mentor) => (
+            <div key={mentor.id} className="mentor-card" onClick={() => handleSelectMentor(mentor)}>
+              <div className="mentor-avatar">
+                {mentor.imageUrl ? (
+                  <img src={mentor.imageUrl} alt={mentor.name} />
+                ) : (
+                  <span className="avatar-placeholder">👤</span>
+                )}
               </div>
-            ))
+              <div className="mentor-info">
+                <h3 className="mentor-name">{mentor.name || 'ไม่ระบุชื่อ'}</h3>
+                <p className="mentor-details">{mentor.faculty || 'APE/TME'}</p>
+              </div>
+              <div className="mentor-action">
+                <span className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '0.8rem' }}>
+                  💬 แชท
+                </span>
+              </div>
+            </div>
+          ))
         )}
+
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
 
         <style>{`
           .mentor-card {
@@ -412,6 +409,8 @@ export default function ChatPage() {
         </div>
       </div>
 
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+
       <style>{`
         .chat-container {
           display: flex;
@@ -504,13 +503,12 @@ export default function ChatPage() {
         }
 
         @media (max-width: 480px) {
-                  .chat-container {
-                    height: calc(100vh - 160px);
-                    min-height: 300px;
-                  }
-                }
-              `}</style>
-              <ToastContainer toasts={toasts} onRemove={removeToast} />
-            </div>
-          );
+          .chat-container {
+            height: calc(100vh - 160px);
+            min-height: 300px;
+          }
         }
+      `}</style>
+    </div>
+  );
+}

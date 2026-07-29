@@ -1,7 +1,7 @@
 // app/api/gas2/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 
-const GAS_URL = process.env.NEXT_PUBLIC_GAS_URL || '';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycby67hspBSyxm3kqPhMOdm5HTGyy2hcih-b6YIwH9xU8Qd3vi9o_9NuI2qcvK0LoiASFww/exec';
 
 if (!GAS_URL) {
   console.warn('⚠️ [Server] NEXT_PUBLIC_GAS_URL not configured');

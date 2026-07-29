@@ -1,14 +1,14 @@
 // lib/session.ts
 // Session management with validation and expiry
 
-import { ParsedStudentId } from './studentId';
+import { updateSession } from './gasClient';
 
 export interface Session {
   studentId: string;
   role: 'Y1' | 'Y2';
   pairKey: string;
-  createdAt: number; // Unix timestamp
-  expiresAt: number; // Unix timestamp
+  createdAt: number;
+  expiresAt: number;
 }
 
 const SESSION_KEY = 'sairhas_session';
@@ -33,10 +33,21 @@ export function createSession(
 }
 
 /**
- * Save session to localStorage
+ * Save session to localStorage AND Google Sheets
  */
 export function saveSession(session: Session): void {
+  // ✅ เก็บใน localStorage
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  
+  // ✅ เก็บใน Google Sheets ด้วย
+  updateSession(session.studentId, {
+    role: session.role,
+    pairKey: session.pairKey,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+  }).catch(err => {
+    console.error('❌ Failed to save session to sheet:', err);
+  });
 }
 
 /**

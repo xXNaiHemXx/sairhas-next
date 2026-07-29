@@ -102,7 +102,13 @@ export default function Home() {
         <Link href="/mentor" className="menu-card">
           <div className="menu-icon">👥</div>
           <h3 className="menu-title">Mentor</h3>
-          <p className="menu-desc">รายชื่อพี่รหัสและแชท</p>
+          <p className="menu-desc">รายชื่อพี่รหัส</p>
+        </Link>
+
+        <Link href="/chat" className="menu-card">
+          <div className="menu-icon">💬</div>
+          <h3 className="menu-title">แชท</h3>
+          <p className="menu-desc">แชทกับพี่รหัสของคุณ</p>
         </Link>
 
         <Link href="/board" className="menu-card">
@@ -128,7 +134,7 @@ export default function Home() {
       <style>{`
         .menu-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 16px;
           margin: 16px 0;
         }
@@ -138,7 +144,7 @@ export default function Home() {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 24px 16px;
+          padding: 20px 12px;
           background: var(--surface);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
@@ -148,7 +154,7 @@ export default function Home() {
           transition: all var(--transition);
           text-decoration: none;
           color: var(--fg);
-          min-height: 120px;
+          min-height: 100px;
         }
 
         .menu-card:hover {
@@ -158,14 +164,14 @@ export default function Home() {
         }
 
         .menu-card:active { transform: scale(0.97); }
-        .menu-icon { font-size: 2.5rem; margin-bottom: 8px; }
-        .menu-title { font-size: 1rem; font-weight: 600; margin: 0; }
-        .menu-desc { font-size: 0.7rem; color: var(--fg-muted); margin: 4px 0 0; text-align: center; }
+        .menu-icon { font-size: 2rem; margin-bottom: 6px; }
+        .menu-title { font-size: 0.9rem; font-weight: 600; margin: 0; }
+        .menu-desc { font-size: 0.65rem; color: var(--fg-muted); margin: 2px 0 0; text-align: center; }
 
-        @media (max-width: 480px) {
-          .menu-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
-          .menu-card { padding: 16px 12px; min-height: 100px; }
-          .menu-icon { font-size: 2rem; }
+        @media (max-width: 600px) {
+          .menu-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+          .menu-card { padding: 16px 12px; min-height: 90px; }
+          .menu-icon { font-size: 1.8rem; }
         }
       `}</style>
     </div>

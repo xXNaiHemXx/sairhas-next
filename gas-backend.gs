@@ -9,6 +9,7 @@ const TABS = {
   SENIORS: 'seniors',
   MESSAGES: 'messages',
   CLUES: 'clues'  // ✅ เพิ่มสำหรับกระดานคำใบ้
+  SESSIONS: 'sessions'  // ✅ เพิ่ม
 };
 
 const COL = {
@@ -118,6 +119,9 @@ function doPost(e) {
       case 'sendMessage':
         result = handleSendMessage(payload.pair_key, payload.from_id, payload.content, payload.type);
         break;
+      case 'updateSession':
+        result = handleUpdateSession(payload.student_id, payload.session);
+        break;
       case 'getThread':
         result = handleGetThread(payload.pair_key);
         break;
@@ -205,7 +209,8 @@ function getSheet(tabName) {
       [TABS.PAIRS]: [['pair_key', 'y2_id', 'y1_id', 'reveal_at', 'status', 'picked_at']],
       [TABS.SENIORS]: [['y2_id', 'name', 'faculty', 'max_picks', 'current_picks', 'ig', 'line', 'imageUrl', 'pairKey']],
       [TABS.MESSAGES]: [['id', 'pair_key', 'from_id', 'content', 'type', 'sent_at', 'read_at']],
-      [TABS.CLUES]: [['id', 'authorId', 'content', 'createdAt', 'top', 'left', 'color', 'rotation']]
+      [TABS.CLUES]: [['id', 'authorId', 'content', 'createdAt', 'top', 'left', 'color', 'rotation']],
+      [TABS.SESSIONS]: [['studentId', 'role', 'pairKey', 'createdAt', 'expiresAt']]  // ✅ เพิ่ม
     };
     if (headers[tabName]) {
       sheet.getRange(1, 1, 1, headers[tabName][0].length).setValues(headers[tabName]);
@@ -759,3 +764,40 @@ function handleGetMyClues(studentId) {
   
   return { ok: true, clues: myClues };
 }
+
+// ============ UPDATE SESSION ============
+function handleUpdateSession(studentId, sessionData) {
+  // เก็บ session ลงในชีท sessions (สร้างใหม่ถ้ายังไม่มี)
+  const sheet = getSheet('sessions');
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 4).setValues([['studentId', 'role', 'pairKey', 'updatedAt']]);
+  }
+  
+  // หาแถวที่มี studentId นี้
+  const rows = getDataRows('sessions');
+  let found = false;
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(studentId).trim()) {
+      // อัปเดตแถวที่มีอยู่
+      const values = [...rows[i]];
+      values[1] = sessionData.role || '';
+      values[2] = sessionData.pairKey || '';
+      values[3] = new Date().toISOString();
+      updateRow('sessions', i + 2, values);
+      found = true;
+      break;
+    }
+  }
+  
+  if (!found) {
+    // เพิ่มแถวใหม่
+    appendRow('sessions', [
+      studentId,
+      sessionData.role || '',
+      sessionData.pairKey || '',
+      new Date().toISOString()
+    ]);
+  }
+  
+  return { ok: true };
+} 

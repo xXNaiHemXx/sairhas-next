@@ -1,3 +1,4 @@
+// lib/gasClient.ts
 interface GasResponse<T = any> {
   ok: boolean;
   error?: string;
@@ -14,8 +15,7 @@ interface GasResponse<T = any> {
   junior?: T;
 }
 
-// 🔥 เปลี่ยนไปใช้ API Route ใหม่ (/api/gas)
-const API_URL = '/api/gas';
+const API_URL = '/api/gas2';
 
 async function callApi<T>(payload: Record<string, any>): Promise<GasResponse<T>> {
   try {
@@ -80,7 +80,6 @@ export async function sendMessage(
   content: string,
   type: string = 'custom'
 ) {
-  console.log('📤 sendMessage:', { pairKey, fromId, content, type });
   return callApi({
     action: 'sendMessage',
     pair_key: pairKey,
@@ -124,13 +123,16 @@ export async function updateProfile(studentId: string, profile: any) {
 }
 
 // ============ Board (Clues) Functions ============
-// ✅ มีแค่ครั้งเดียว!
 export async function addClue(authorId: string, content: string) {
   return callApi({
     action: 'addClue',
     author_id: authorId,
     content: content,
   });
+}
+
+export async function getClues() {
+  return callApi({ action: 'getClues' });
 }
 
 export async function getMyClues(studentId: string) {
@@ -147,8 +149,6 @@ export async function deleteClue(clueId: string, authorId: string) {
     author_id: authorId,
   });
 }
-
-
 
 // ============ Chat Functions ============
 export async function getChatMessages(studentId: string, pairKey: string) {
@@ -168,13 +168,19 @@ export async function sendChatMessage(fromId: string, pairKey: string, content: 
   });
 }
 
-
-
-
 // ============ Get My Junior ============
 export async function getMyJunior(y2Id: string) {
   return callApi({
     action: 'getMyJunior',
     y2_id: y2Id,
+  });
+}
+
+// ============ Update Session ============
+export async function updateSession(studentId: string, session: any) {
+  return callApi({
+    action: 'updateSession',
+    student_id: studentId,
+    session: session,
   });
 }
