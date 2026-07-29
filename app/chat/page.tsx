@@ -11,10 +11,11 @@ export default function ChatPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [partner, setPartner] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+    const [partner, setPartner] = useState<any>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSending, setIsSending] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const sessionData = getSession();
@@ -71,7 +72,7 @@ export default function ChatPage() {
           if (userRes.ok) {
             const userData = await userRes.json();
             if (userData.ok && userData.user) {
-              setPartner(prev => ({
+              setPartner((prev: any) => ({
                 ...prev,
                 nickname: userData.user.nickname || userData.user.username || partnerId,
               }));

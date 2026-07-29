@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getProfile, updateProfile } from '@/lib/gasClient';
+import { getProfile, updateProfile } from '@/lib/apiClient';
 import { getSession, Session } from '@/lib/session';
 import { useToast, ToastContainer } from '@/hooks/useToast';
 

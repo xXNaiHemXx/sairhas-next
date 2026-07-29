@@ -11,8 +11,9 @@ interface ApiResponse<T = any> {
   mentors?: any[];
   clues?: any[];
   clue?: any;
+  juniors?: any[];
+  partner?: any;
 }
-
 const API_URL = '/api';
 
 async function callApi<T>(
@@ -102,5 +103,41 @@ export async function deleteClue(clueId: string, authorId: string) {
   return callApi('/clues', {
     method: 'DELETE',
     body: JSON.stringify({ clueId, authorId }),
+  });
+}
+
+// ============ Pair Key ============
+export async function getPairByKey(pairKey: string) {
+  return callApi(`/pairs?pairKey=${pairKey}`);
+}
+
+// ============ Thread ============
+export async function getThread(pairKey: string) {
+  return callApi(`/chat?pairKey=${pairKey}`);
+}
+
+// ============ Pick Junior ============
+export async function pickJunior(y2Id: string, y1Id: string) {
+  return callApi('/pairs/pick', {
+    method: 'POST',
+    body: JSON.stringify({ y2Id, y1Id }),
+  });
+}
+
+// ============ Available Juniors ============
+export async function getAvailableJuniors(): Promise<ApiResponse<{ juniors: any[] }>> {
+  return callApi('/pairs/available');
+}
+
+// ============ Countdown ============
+export async function getCountdown(pairKey: string): Promise<{ ok: boolean; error?: string; reveal_at?: string }> {
+  return callApi(`/pairs/countdown?pairKey=${pairKey}`);
+}
+
+// ============ Send Message ============
+export async function sendMessage(pairKey: string, fromId: string, content: string, type: string) {
+  return callApi('/chat', {
+    method: 'POST',
+    body: JSON.stringify({ fromId, pairKey, content, type }),
   });
 }

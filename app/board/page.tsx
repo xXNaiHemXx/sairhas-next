@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getMyClues, addClue, deleteClue } from '@/lib/gasClient';
+import { getMyClues, addClue, deleteClue } from '@/lib/apiClient';
 import { getSession, Session } from '@/lib/session';
 
 interface Clue {
@@ -95,7 +95,7 @@ export default function BoardPage() {
     if (!confirm('คุณต้องการลบคำใบ้นี้ใช่หรือไม่?')) return;
     
     try {
-      const result = await deleteClue(clueId, session.studentId);
+      const result = await deleteClue(clueId, session!.studentId);
       if (result.ok) {
         setClues(prev => prev.filter(c => c.id !== clueId));
       } else {

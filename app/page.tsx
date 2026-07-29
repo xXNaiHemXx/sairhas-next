@@ -84,7 +84,7 @@ export default function Home() {
         </div>
         <div className="home-header-right">
           <span className="badge badge-matched">
-            {session.role === 'Y2' ? 'พี่ (Y2)' : 'น้อง (Y1)'}
+            {session!.role === 'Y2' ? 'พี่ (Y2)' : 'น้อง (Y1)'}
           </span>
           <Link href="/profile" className="btn btn-ghost" aria-label="โปรไฟล์">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -103,9 +103,9 @@ export default function Home() {
       </header>
 
       <div className="card">
-        <h2 className="h2">👋 สวัสดี, {session.studentId}</h2>
-        <p className="body-sm">บทบาท: {session.role === 'Y2' ? 'พี่รหัส (Y2)' : 'น้องรหัส (Y1)'}</p>
-      </div>
+              <h2 className="h2">👋 สวัสดี, {session!.studentId}</h2>
+              <p className="body-sm">บทบาท: {session!.role === 'Y2' ? 'พี่รหัส (Y2)' : 'น้องรหัส (Y1)'}</p>
+            </div>
 
       <div className="menu-grid">
         <Link href="/mentor" className="menu-card">

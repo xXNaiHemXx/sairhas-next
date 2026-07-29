@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   getPairByKey, getThread, sendMessage, 
   pickJunior, getAvailableJuniors, getCountdown 
-} from '@/lib/gasClient';
+} from '@/lib/apiClient';
 
 interface PairDashboardProps {
   pairKey: string;
@@ -78,37 +78,35 @@ export default function PairDashboard({ pairKey, role, studentId }: PairDashboar
   };
 
   // ✅ แก้ไข: ไม่ต้องมี messages ใน dependency
-  const loadMessages = useCallback(async () => {
-    if (!pairKey || !isMounted.current) return;
-    
-    try {
-      const result = await getThread(pairKey);
-      if (result.ok && result.messages && isMounted.current) {
-        // ✅ ป้องกันการตั้งค่า messages ซ้ำด้วยการตรวจสอบ id
-        setMessages(prev => {
-          const currentIds = new Set(prev.map(m => m.id));
-          const newMessages = result.messages.filter((m: any) => !currentIds.has(m.id));
-          
-          if (newMessages.length === 0) {
-            // ถ้าไม่มีข้อความใหม่ และยังไม่มีข้อความเลย ให้ใช้ของเดิม
-            if (prev.length === 0 && result.messages.length > 0) {
-              return result.messages;
+    const loadMessages = useCallback(async () => {
+      if (!pairKey || !isMounted.current) return;
+
+      try {
+        const result = await getThread(pairKey);
+        if (result.ok && result.messages && isMounted.current) {
+          // ✅ ป้องกันการตั้งค่า messages ซ้ำด้วยการตรวจสอบ id
+          const messages = result.messages!;
+          setMessages((prev: any[]): any[] => {
+            const currentIds = new Set(prev.map(m => m.id));
+            const newMessages = messages.filter((m: any) => !currentIds.has(m.id));
+
+            if (newMessages.length === 0) {
+              // ถ้าไม่มีข้อความใหม่ และยังไม่มีข้อความเลย ให้ใช้ของเดิม
+              if (prev.length === 0 && messages.length > 0) {
+                return messages;
+              }
+              return prev;
             }
-            return prev;
-          }
-          
-          const combined = [...prev, ...newMessages];
-          return combined.sort((a, b) => 
-            new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
-          );
-        });
-        setIsLoadingMessages(false);
+
+            const combined = [...prev, ...newMessages];
+            return combined;
+          });
+          setIsLoadingMessages(false);
+        }
+      } catch (error) {
+        console.error('Error loading messages:', error);
       }
-    } catch (error) {
-      console.error('Error loading messages:', error);
-      setIsLoadingMessages(false);
-    }
-  }, [pairKey]); // ✅ ใช้ pairKey เท่านั้น
+    }, [pairKey]);
 
   const loadAvailableJuniors = async () => {
     if (!isMounted.current) return;
@@ -163,29 +161,30 @@ export default function PairDashboard({ pairKey, role, studentId }: PairDashboar
     
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     const tempMessage = {
-      id: tempId,
-      pair_key: pairKey,
-      from_id: studentId,
-      content: trimmedMessage,
-      type: messageType,
-      sent_at: new Date().toISOString(),
-      read_at: null,
-      isTemp: true
-    };
+          id: tempId,
+          pair_key: pairKey,
+          from_id: studentId,
+          content: trimmedMessage,
+          type: messageType,
+          sent_at: new Date().toISOString(),
+          read_at: null,
+          isTemp: true
+        };
     
-    setMessages(prev => [...prev, tempMessage]);
-    setNewMessage('');
-    setIsSending(true);
+        setMessages(prev => [...prev, tempMessage]);
+        setNewMessage('');
+        setIsSending(true);
 
-    try {
-      const result = await sendMessage(pairKey, studentId, trimmedMessage, messageType);
-      if (result.ok && result.message && isMounted.current) {
-        setMessages(prev => prev.map(msg => msg.id === tempId ? { ...result.message, isTemp: false } : msg));
-      } else if (isMounted.current) {
-        setMessages(prev => prev.filter(msg => msg.id !== tempId));
-        alert(result?.error || 'ส่งข้อความไม่สำเร็จ');
-      }
-    } catch (error) {
+        try {
+                                  const result = await sendMessage(pairKey, studentId, trimmedMessage, messageType);
+                                  if (result.ok && result.message && isMounted.current) {
+                                    const newMsg = { ...result.message as any, isTemp: false } as any;
+                                    setMessages(prev => prev.map(msg => msg.id === tempId ? newMsg : msg));
+                                  } else if (isMounted.current) {
+                                    setMessages(prev => prev.filter(msg => msg.id !== tempId));
+                                    alert(result?.error || 'ส่งข้อความไม่สำเร็จ');
+                                  }
+                                } catch (error) {
       if (isMounted.current) {
         setMessages(prev => prev.filter(msg => msg.id !== tempId));
         alert('เกิดข้อผิดพลาดในการส่งข้อความ');
