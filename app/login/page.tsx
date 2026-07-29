@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { verifyStudentId, checkNetwork } from '@/lib/gasClient';
+import { parseStudentId, isValidStudentId } from '@/lib/studentId';
+import { createSession, saveSession } from '@/lib/session';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,43 +31,17 @@ export default function LoginPage() {
     }
   };
 
-  const parseStudentId = (id: string) => {
-    const s = String(id ?? '').trim().replace(/\D/g, '');
-    if (s.length === 11) {
-      return {
-        year: s.slice(0, 2),
-        core: s.slice(2, 8),
-        suffix: s.slice(8, 11),
-        pairKey: s.slice(8, 11),
-        role: s.startsWith('68') ? 'Y2' : s.startsWith('69') ? 'Y1' : null,
-        full: s
-      };
-    }
-    if (s.length === 13) {
-      return {
-        year: s.slice(0, 2),
-        core: s.slice(2, 8),
-        variable: s.slice(8, 10),
-        suffix: s.slice(10, 13),
-        pairKey: s.slice(10, 13),
-        role: s.startsWith('68') ? 'Y2' : s.startsWith('69') ? 'Y1' : null,
-        full: s
-      };
-    }
-    return null;
-  };
-
   const handleLoginClick = () => {
     const digits = studentId.replace(/\D/g, '');
-    if (digits.length !== 11) {
-      setError('กรุณากรอกรหัสนักศึกษาให้ครบ 11 หลัก');
+    if (!isValidStudentId(digits)) {
+      setError('รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็น 11 หลักขึ้นต้น 68 หรือ 69)');
       inputRef.current?.focus();
       return;
     }
 
     const parsed = parseStudentId(digits);
     if (!parsed || !parsed.role) {
-      setError('รหัสไม่ถูกต้อง (ต้องขึ้นต้นด้วย 68 หรือ 69)');
+      setError('รหัสไม่ถูกต้อง');
       inputRef.current?.focus();
       return;
     }
@@ -73,6 +49,13 @@ export default function LoginPage() {
     setParsedData(parsed);
     setShowConfirmPopup(true);
     setError('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleLoginClick();
+    }
   };
 
   const handleConfirmLogin = async () => {
@@ -112,15 +95,10 @@ export default function LoginPage() {
         return;
       }
 
-      // ✅ บันทึก session พร้อม pairKey
-      const session = {
-        studentId: studentId,
-        role: role,
-        pairKey: pairKey, // ✅ ต้องมีค่านี้!
-      };
-
+      // ✅ บันทึก session พร้อม pairKey (ใช้ session management ใหม่)
+      const session = createSession(studentId, role, pairKey);
       console.log('💾 Saving session:', session);
-      localStorage.setItem('session', JSON.stringify(session));
+      saveSession(session);
       router.push('/');
     } catch (err) {
       console.error('❌ Login error:', err);
@@ -168,7 +146,7 @@ export default function LoginPage() {
               setStudentId(value);
               setError('');
             }}
-            onKeyDown={(e) => e.key === 'Enter' && handleLoginClick()}
+            onKeyDown={handleKeyDown}
             disabled={isLoading}
             autoFocus
           />

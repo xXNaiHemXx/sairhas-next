@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getMyClues, addClue, deleteClue } from '@/lib/gasClient';
+import { getSession, Session } from '@/lib/session';
 
 interface Clue {
   id: string;
@@ -20,7 +21,7 @@ interface Clue {
 
 export default function BoardPage() {
   const router = useRouter();
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [clues, setClues] = useState<Clue[]>([]);
   const [newClue, setNewClue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,16 +31,15 @@ export default function BoardPage() {
   const [myPairKey, setMyPairKey] = useState<string>('');
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('session');
-    if (!savedSession) {
+    const sessionData = getSession();
+    if (!sessionData) {
       router.push('/login');
       return;
     }
     try {
-      const parsed = JSON.parse(savedSession);
-      setSession(parsed);
-      setMyPairKey(parsed.pairKey || '');
-      loadClues(parsed);
+      setSession(sessionData);
+      setMyPairKey(sessionData.pairKey || '');
+      loadClues(sessionData);
     } catch (e) {
       router.push('/login');
     }
@@ -52,7 +52,7 @@ export default function BoardPage() {
     }
   }, []);
 
-  const loadClues = async (session: any) => {
+  const loadClues = async (session: Session) => {
     setIsLoading(true);
     try {
       // ✅ เรียก API เฉพาะคำใบ้ของคู่รหัสตัวเอง

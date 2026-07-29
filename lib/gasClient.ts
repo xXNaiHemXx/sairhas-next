@@ -14,8 +14,8 @@ interface GasResponse<T = any> {
   junior?: T;
 }
 
-// 🔥 เปลี่ยนไปใช้ API Route ใหม่ (/api/gas2)
-const API_URL = '/api/gas2';
+// 🔥 เปลี่ยนไปใช้ API Route ใหม่ (/api/gas)
+const API_URL = '/api/gas';
 
 async function callApi<T>(payload: Record<string, any>): Promise<GasResponse<T>> {
   try {
