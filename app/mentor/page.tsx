@@ -3,18 +3,19 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getMentors } from '@/lib/gasClient';
+import { getMentors } from '@/lib/apiClient'; // ✅ เปลี่ยนจาก gasClient เป็น apiClient
 import { getSession, clearSession, Session } from '@/lib/session';
 
 interface Mentor {
   id: string;
-  name: string;
+  studentId: string;
+  nickname: string;
+  faculty: string;
   ig: string;
   line: string;
-  faculty: string;
-  year: string;
   imageUrl?: string;
   pairKey?: string;
+  role?: string;
 }
 
 export default function MentorPage() {
@@ -31,7 +32,6 @@ export default function MentorPage() {
       router.push('/login');
       return;
     }
-    console.log('🔍 Session loaded:', sessionData);
     setSession(sessionData);
     loadMentors(sessionData);
   }, [router]);
@@ -77,19 +77,18 @@ export default function MentorPage() {
   };
 
   const handleChat = (mentorId: string) => {
-  // ถ้าเป็น Y1 ให้เช็คว่าเป็นพี่รหัสของตัวเองหรือไม่
     if (session?.role === 'Y1') {
-        if (!myMentor) {
+      if (!myMentor) {
         alert('⚠️ ไม่พบพี่รหัสของคุณในระบบ');
         return;
-        }
-        if (mentorId !== myMentor.id) {
+      }
+      if (mentorId !== myMentor.id) {
         alert('⚠️ คุณสามารถแชทกับพี่รหัสของตัวเองเท่านั้น');
         return;
-        }
+      }
     }
-    router.push('/chat');
-    };
+    router.push(`/chat/${mentorId}`);
+  };
 
   if (!session) {
     return (
@@ -133,7 +132,7 @@ export default function MentorPage() {
           <p className="body-sm" style={{ color: 'var(--fg)' }}>❌ {error}</p>
           <button 
             className="btn btn-primary" 
-            onClick={() => loadMentors(session)}
+            onClick={() => session && loadMentors(session)}
             style={{ marginTop: '12px' }}
           >
             🔄 ลองใหม่
@@ -157,14 +156,14 @@ export default function MentorPage() {
               <div className="mentor-card" style={{ border: 'none', padding: '8px 0', marginBottom: 0 }}>
                 <div className="mentor-avatar">
                   {myMentor.imageUrl ? (
-                    <img src={myMentor.imageUrl} alt={myMentor.name} />
+                    <img src={myMentor.imageUrl} alt={myMentor.nickname} />
                   ) : (
                     <span className="avatar-placeholder">👤</span>
                   )}
                 </div>
                 <div className="mentor-info">
-                  <h3 className="mentor-name">{myMentor.name || 'ไม่ระบุชื่อ'}</h3>
-                  <p className="mentor-details">{myMentor.faculty || 'APE/TME'} · {myMentor.year || 'ปี 68'}</p>
+                  <h3 className="mentor-name">{myMentor.nickname || 'ไม่ระบุชื่อ'}</h3>
+                  <p className="mentor-details">{myMentor.faculty || 'APE/TME'}</p>
                   <div className="mentor-social">
                     {myMentor.ig && <span>📸 {myMentor.ig}</span>}
                     {myMentor.line && <span>💬 {myMentor.line}</span>}
@@ -187,7 +186,6 @@ export default function MentorPage() {
           {mentors.map((mentor) => {
             const isMyMentor = session.role === 'Y1' && myMentor && mentor.id === myMentor.id;
             
-            // ✅ ถ้าเป็น Y1 และ mentor นี้คือพี่รหัสของตัวเอง ให้ข้าม (แสดงไปแล้ว)
             if (isMyMentor) return null;
             
             const canChat = session.role === 'Y2' || isMyMentor;
@@ -196,14 +194,14 @@ export default function MentorPage() {
               <div key={mentor.id} className="mentor-card">
                 <div className="mentor-avatar">
                   {mentor.imageUrl ? (
-                    <img src={mentor.imageUrl} alt={mentor.name} />
+                    <img src={mentor.imageUrl} alt={mentor.nickname} />
                   ) : (
                     <span className="avatar-placeholder">👤</span>
                   )}
                 </div>
                 <div className="mentor-info">
-                  <h3 className="mentor-name">{mentor.name || 'ไม่ระบุชื่อ'}</h3>
-                  <p className="mentor-details">{mentor.faculty || 'APE/TME'} · {mentor.year || 'ปี 68'}</p>
+                  <h3 className="mentor-name">{mentor.nickname || 'ไม่ระบุชื่อ'}</h3>
+                  <p className="mentor-details">{mentor.faculty || 'APE/TME'}</p>
                   <div className="mentor-social">
                     {mentor.ig && <span>📸 {mentor.ig}</span>}
                     {mentor.line && <span>💬 {mentor.line}</span>}
@@ -347,4 +345,4 @@ export default function MentorPage() {
       `}</style>
     </div>
   );
-}
+}                             
