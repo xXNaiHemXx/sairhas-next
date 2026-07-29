@@ -3,21 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getMyClues, addClue, deleteClue } from '@/lib/gasClient';
+import { getMyClues, addClue, deleteClue, Clue } from '@/lib/gasClient';
 import { getSession, Session } from '@/lib/session';
-
-interface Clue {
-  id: string;
-  content: string;
-  authorId: string;
-  createdAt: string;
-  position: {
-    top: number;
-    left: number;
-  };
-  color: string;
-  rotation: number;
-}
 
 export default function BoardPage() {
   const router = useRouter();
@@ -71,31 +58,32 @@ export default function BoardPage() {
   };
 
   const handleSubmit = async () => {
-    if (!newClue.trim() || !session) return;
+      if (!newClue.trim() || !session) return;
 
-    setIsSubmitting(true);
-    try {
-      // ✅ ส่งคำใบ้ไปยัง GAS
-      const result = await addClue(session.studentId, newClue.trim());
-      if (result.ok && result.clue) {
-        setClues(prev => [...prev, result.clue]);
-        setNewClue('');
-        alert('📌 เพิ่มคำใบ้ลงกระดานแล้ว!');
-      } else {
-        alert(result.error || 'เกิดข้อผิดพลาด');
+      setIsSubmitting(true);
+      try {
+        // ✅ ส่งคำใบ้ไปยัง GAS
+        const result = await addClue(session.studentId, newClue.trim());
+        if (result.ok && result.clue) {
+          setClues(prev => [...prev, result.clue!]);
+          setNewClue('');
+          alert('📌 เพิ่มคำใบ้ลงกระดานแล้ว!');
+        } else {
+          alert(result.error || 'เกิดข้อผิดพลาด');
+        }
+      } catch (error) {
+        alert('เกิดข้อผิดพลาดในการเพิ่มคำใบ้');
+      } finally {
+        setIsSubmitting(false);
       }
-    } catch (error) {
-      alert('เกิดข้อผิดพลาดในการเพิ่มคำใบ้');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    };
 
   const handleDelete = async (clueId: string) => {
-    if (!confirm('คุณต้องการลบคำใบ้นี้ใช่หรือไม่?')) return;
+      if (!confirm('คุณต้องการลบคำใบ้นี้ใช่หรือไม่?')) return;
+      if (!session) return;
     
-    try {
-      const result = await deleteClue(clueId, session.studentId);
+      try {
+        const result = await deleteClue(clueId, session.studentId);
       if (result.ok) {
         setClues(prev => prev.filter(c => c.id !== clueId));
       } else {

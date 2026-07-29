@@ -9,7 +9,7 @@ interface GasResponse<T = any> {
   parsed?: any;
   mentors?: T[];
   profile?: T;
-  clues?: T[];
+  clues?: T;
   clue?: T;
   junior?: T;
 }
@@ -126,7 +126,7 @@ export async function updateProfile(studentId: string, profile: any) {
 // ============ Board (Clues) Functions ============
 // ✅ มีแค่ครั้งเดียว!
 export async function addClue(authorId: string, content: string) {
-  return callApi({
+  return callApi<Clue>({
     action: 'addClue',
     author_id: authorId,
     content: content,
@@ -134,7 +134,7 @@ export async function addClue(authorId: string, content: string) {
 }
 
 export async function getMyClues(studentId: string) {
-  return callApi({
+  return callApi<Clue[]>({
     action: 'getMyClues',
     student_id: studentId,
   });
@@ -146,6 +146,20 @@ export async function deleteClue(clueId: string, authorId: string) {
     clue_id: clueId,
     author_id: authorId,
   });
+}
+
+// Clue type for TypeScript
+export interface Clue {
+  id: string;
+  content: string;
+  authorId: string;
+  createdAt: string;
+  position: {
+    top: number;
+    left: number;
+  };
+  color: string;
+  rotation: number;
 }
 
 

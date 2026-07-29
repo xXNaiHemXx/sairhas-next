@@ -1,5 +1,4 @@
-// hooks/useToast.ts
-// Toast notification system using existing CSS classes
+"use client";
 
 import { useState, useCallback } from 'react';
 
@@ -16,12 +15,11 @@ export function useToast() {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const showToast = useCallback((message: string, type: ToastType = 'info', duration = 3000) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const id = 'toast-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
     const newToast: Toast = { id, message, type, duration };
     
     setToasts(prev => [...prev, newToast]);
     
-    // Auto remove after duration
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, duration);
@@ -56,7 +54,6 @@ export function useToast() {
   };
 }
 
-// Toast container component
 export function ToastContainer({ toasts, onRemove }: { 
   toasts: Toast[]; 
   onRemove: (id: string) => void;
@@ -68,7 +65,7 @@ export function ToastContainer({ toasts, onRemove }: {
       {toasts.map((toast: Toast) => (
         <div 
           key={toast.id} 
-          className={`toast toast-${toast.type}`}
+          className={"toast toast-" + toast.type}
           role="alert"
         >
           <div className="toast-content">
