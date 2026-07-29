@@ -15,7 +15,7 @@ interface GasResponse<T = any> {
   junior?: T;
 }
 
-const API_URL = '/api/gas2';
+const API_URL = '/api/gas';
 
 async function callApi<T>(payload: Record<string, any>): Promise<GasResponse<T>> {
   try {
@@ -184,3 +184,9 @@ export async function updateSession(studentId: string, session: any) {
     session: session,
   });
 }
+export async function getMyPair(studentId: string) {
+  return callApi({
+    action: 'getMyPair',
+    student_id: studentId,
+  });
+

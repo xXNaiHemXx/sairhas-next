@@ -113,6 +113,9 @@ function doPost(e) {
       case 'getAvailableJuniors':
         result = handleGetAvailableJuniors();
         break;
+      case 'getMyPair':
+        result = handleGetMyPair(payload.student_id);
+        break;
       case 'pickJunior':
         result = handlePickJunior(payload.y2_id, payload.y1_id);
         break;
@@ -801,3 +804,75 @@ function handleUpdateSession(studentId, sessionData) {
   
   return { ok: true };
 } 
+
+// ============ GET MY PAIR ============
+function handleGetMyPair(studentId) {
+  const parsed = parseStudentId(studentId);
+  if (!parsed) {
+    return { ok: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' };
+  }
+  
+  const pairKey = parsed.pairKey; // เลขท้าย 3 ตัว
+  
+  // หาคู่ใน pairs sheet
+  const pairs = getDataRows(TABS.PAIRS);
+  const pair = pairs.find(r => String(r[COL.PAIRS.pair_key - 1]).trim() === pairKey);
+  
+  if (!pair) {
+    return { ok: false, error: 'ไม่พบคู่รหัส' };
+  }
+  
+  const y2Id = String(pair[COL.PAIRS.y2_id - 1] || '').trim();
+  const y1Id = String(pair[COL.PAIRS.y1_id - 1] || '').trim();
+  
+  // หาข้อมูลโปรไฟล์ของอีกฝ่าย
+  let partnerId = '';
+  let partnerName = '';
+  let partnerFaculty = 'APE/TME';
+  let partnerImageUrl = '';
+  let partnerRole = '';
+  
+  if (parsed.role === 'Y2') {
+    // ถ้าเป็น Y2 ให้คู่คือ Y1
+    partnerId = y1Id;
+    partnerRole = 'Y1';
+    // หาข้อมูล Y1 จาก seniors (ถ้ามี)
+    const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, y1Id);
+    if (seniorRow) {
+      partnerName = String(seniorRow.data[COL.SENIORS.name - 1] || y1Id).trim();
+      partnerFaculty = String(seniorRow.data[COL.SENIORS.faculty - 1] || 'APE/TME').trim();
+      partnerImageUrl = String(seniorRow.data[COL.SENIORS.imageUrl - 1] || '').trim();
+    } else {
+      partnerName = y1Id;
+    }
+  } else if (parsed.role === 'Y1') {
+    // ถ้าเป็น Y1 ให้คู่คือ Y2
+    partnerId = y2Id;
+    partnerRole = 'Y2';
+    // หาข้อมูล Y2 จาก seniors
+    const seniorRow = findRow(TABS.SENIORS, COL.SENIORS.y2_id, y2Id);
+    if (seniorRow) {
+      partnerName = String(seniorRow.data[COL.SENIORS.name - 1] || y2Id).trim();
+      partnerFaculty = String(seniorRow.data[COL.SENIORS.faculty - 1] || 'APE/TME').trim();
+      partnerImageUrl = String(seniorRow.data[COL.SENIORS.imageUrl - 1] || '').trim();
+    } else {
+      partnerName = y2Id;
+    }
+  }
+  
+  if (!partnerId) {
+    return { ok: false, error: 'ยังไม่มีคู่รหัส' };
+  }
+  
+  return {
+    ok: true,
+    partner: {
+      id: partnerId,
+      name: partnerName || partnerId,
+      faculty: partnerFaculty,
+      imageUrl: partnerImageUrl,
+      pairKey: pairKey,
+      role: partnerRole,
+    }
+  };
+}

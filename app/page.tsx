@@ -1,177 +1,358 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { checkNetwork } from '@/lib/gasClient';
-import { getSession, clearSession, Session } from '@/lib/session';
+import Link from 'next/link';
+import { getChatMessages, sendChatMessage, getMyPair } from '@/lib/gasClient';
+import { getSession, Session } from '@/lib/session';
+import { useToast, ToastContainer } from '@/hooks/useToast';
 
-export default function Home() {
+interface Message {
+  id: string;
+  from_id: string;
+  content: string;
+  sent_at: string;
+  optimistic?: boolean;
+}
+
+interface Partner {
+  id: string;
+  name: string;
+  faculty: string;
+  imageUrl?: string;
+  pairKey: string;
+  role: string;
+}
+
+export default function ChatPage() {
   const router = useRouter();
-  const [isOnline, setIsOnline] = useState(true);
+  const { addToast, removeToast, toasts } = useToast();
   const [session, setSession] = useState<Session | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [partner, setPartner] = useState<Partner | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const sessionData = getSession();
-    if (sessionData) {
-      setSession(sessionData);
-      setIsLoggedIn(true);
+    console.log('🔍 [Chat] Session:', sessionData);
+    
+    if (!sessionData) {
+      router.push('/login');
+      return;
     }
+    
+    setSession(sessionData);
+    loadPartner(sessionData);
+  }, [router]);
 
-    checkNetworkStatus();
-    const interval = setInterval(checkNetworkStatus, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-  const checkNetworkStatus = async () => {
+  // ✅ โหลดคู่รหัสของตัวเอง
+  const loadPartner = async (session: Session) => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const result = await checkNetwork();
-      setIsOnline(result.ok);
-    } catch {
-      setIsOnline(false);
+      const result = await getMyPair(session.studentId);
+      console.log('🔍 [Chat] getMyPair result:', result);
+      
+      if (result.ok && result.partner) {
+        setPartner(result.partner);
+      } else {
+        setError(result.error || 'ไม่พบคู่รหัสของคุณ');
+      }
+    } catch (error) {
+      console.error('❌ Error loading partner:', error);
+      setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    clearSession();
-    setIsLoggedIn(false);
-    setSession(null);
-    router.push('/login');
+  // ✅ โหลดข้อความ
+  const loadMessages = async () => {
+    if (!session || !partner) return;
+    
+    try {
+      const pairKey = session.pairKey || partner.pairKey || '';
+      const result = await getChatMessages(session.studentId, pairKey);
+      
+      if (result.ok && result.messages) {
+        setMessages(result.messages);
+      }
+    } catch (error) {
+      console.error('❌ Error loading messages:', error);
+    }
   };
 
-  if (!isLoggedIn) {
+  // โหลดข้อความเมื่อมี partner
+  useEffect(() => {
+    if (partner && session) {
+      loadMessages();
+      
+      if (pollingInterval.current) clearInterval(pollingInterval.current);
+      pollingInterval.current = setInterval(loadMessages, 5000);
+    }
+    
+    return () => {
+      if (pollingInterval.current) clearInterval(pollingInterval.current);
+    };
+  }, [partner, session]);
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !session || !partner || isSending) return;
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      from_id: session.studentId,
+      content: newMessage.trim(),
+      sent_at: new Date().toISOString(),
+      optimistic: true,
+    };
+
+    setMessages(prev => [...prev, optimisticMessage]);
+    const messageToSend = newMessage.trim();
+    setNewMessage('');
+    setIsSending(true);
+
+    try {
+      const pairKey = session.pairKey || partner.pairKey || '';
+      const result = await sendChatMessage(session.studentId, pairKey, messageToSend);
+      
+      if (result.ok && result.message) {
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === tempId ? { ...result.message, optimistic: false } : msg
+          )
+        );
+        addToast('ส่งข้อความสำเร็จ', 'success');
+      } else {
+        setMessages(prev => prev.filter(msg => msg.id !== tempId));
+        addToast(result.error || 'ส่งข้อความไม่สำเร็จ', 'error');
+      }
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+      setMessages(prev => prev.filter(msg => msg.id !== tempId));
+      addToast('เกิดข้อผิดพลาดในการส่งข้อความ', 'error');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  if (!session) {
     return (
-      <div className="app">
-        <div className="hero">
-          <svg className="hero-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor"/>
-            <circle cx="9" cy="7" r="4" stroke="currentColor"/>
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87" stroke="currentColor"/>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor"/>
-          </svg>
-          <h1 className="hero-title">สายรหัส</h1>
-          <p className="hero-subtitle">ช่องทางสื่อสารแบบไม่ระบุตัวตนระหว่างพี่น้อง APE/TME</p>
-        </div>
-
-        <div className="card">
-          <p className="body-sm text-center" style={{ marginBottom: '16px' }}>
-            กรุณาเข้าสู่ระบบก่อนใช้งาน
-          </p>
-          <Link href="/login" className="btn btn-primary btn-block" style={{ textAlign: 'center' }}>
-            🔑 เข้าสู่ระบบ
-          </Link>
-        </div>
-
-        <div className="card">
-          <div className="net-status">
-            <span className={`net-dot ${isOnline ? 'online' : 'offline'}`}></span>
-            <span>{isOnline ? 'ออนไลน์' : 'ออฟไลน์'}</span>
-          </div>
+      <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div className="card text-center" style={{ maxWidth: '320px' }}>
+          <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
+          <p className="body-sm">กำลังโหลด...</p>
         </div>
       </div>
     );
   }
 
+  if (isLoading) {
+    return (
+      <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div className="card text-center" style={{ maxWidth: '320px' }}>
+          <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
+          <p className="body-sm">กำลังโหลดข้อมูล...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !partner) {
+    return (
+      <div className="app" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div className="card text-center" style={{ maxWidth: '320px', background: 'var(--error)', borderColor: 'var(--error)' }}>
+          <p className="body-sm" style={{ color: 'var(--fg)' }}>❌ {error || 'ไม่พบคู่รหัส'}</p>
+          <Link href="/" className="btn btn-primary" style={{ marginTop: '12px' }}>
+            ← กลับหน้าหลัก
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== หน้าแชท =====
   return (
-    <div className="app">
+    <div className="app" style={{ paddingBottom: '20px' }}>
       <header className="chat-header">
         <div className="chat-header-left">
-          <span className="text-xl">🔗</span>
-          <span className="h2" style={{ fontSize: '1.2rem' }}>สายรหัส APE/TME</span>
+          <Link href="/" className="btn btn-ghost" style={{ padding: '4px 8px' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </Link>
+          <span className="h2" style={{ fontSize: '1.2rem' }}>
+            💬 {partner.name}
+          </span>
         </div>
         <div className="chat-header-right">
-          <span className="badge badge-matched">{session.role === 'Y2' ? 'พี่ (Y2)' : 'น้อง (Y1)'}</span>
-          <button className="btn btn-ghost" onClick={handleLogout} aria-label="ออกจากระบบ">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-          </button>
+          <span className="badge badge-matched">
+            {session.role === 'Y2' ? 'พี่รหัส' : 'น้องรหัส'}
+          </span>
+          <span className="badge badge-matched" style={{ backgroundColor: '#e3e7f8', color: '#6575ac' }}>
+            🔑 {partner.pairKey}
+          </span>
         </div>
       </header>
 
-      <div className="card">
-        <h2 className="h2">👋 สวัสดี, {session.studentId}</h2>
-        <p className="body-sm">บทบาท: {session.role === 'Y2' ? 'พี่รหัส (Y2)' : 'น้องรหัส (Y1)'}</p>
-      </div>
+      <div className="chat-container">
+        <div className="messages-area">
+          {messages.length === 0 ? (
+            <div className="empty-state">
+              <p className="body-sm">เริ่มพูดคุยกับ {partner.name} กันเลย! 💬</p>
+            </div>
+          ) : (
+            messages.map((msg) => {
+              const isOwn = msg.from_id === session.studentId;
+              return (
+                <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
+                  <div className="message-bubble">
+                    <span>{msg.content}</span>
+                  </div>
+                  <div className="message-meta">
+                    <span>{new Date(msg.sent_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          <div ref={messagesEndRef} />
+        </div>
 
-      {/* Menu Grid */}
-      <div className="menu-grid">
-        <Link href="/mentor" className="menu-card">
-          <div className="menu-icon">👥</div>
-          <h3 className="menu-title">Mentor</h3>
-          <p className="menu-desc">รายชื่อพี่รหัส</p>
-        </Link>
-
-        <Link href="/chat" className="menu-card">
-          <div className="menu-icon">💬</div>
-          <h3 className="menu-title">แชท</h3>
-          <p className="menu-desc">แชทกับพี่รหัสของคุณ</p>
-        </Link>
-
-        <Link href="/board" className="menu-card">
-          <div className="menu-icon">📌</div>
-          <h3 className="menu-title">กระดานคำใบ้</h3>
-          <p className="menu-desc">คำใบ้จากพี่รหัส</p>
-        </Link>
-
-        <Link href="/profile" className="menu-card">
-          <div className="menu-icon">👤</div>
-          <h3 className="menu-title">โปรไฟล์</h3>
-          <p className="menu-desc">จัดการข้อมูลส่วนตัว</p>
-        </Link>
-      </div>
-
-      <div className="card">
-        <div className="net-status">
-          <span className={`net-dot ${isOnline ? 'online' : 'offline'}`}></span>
-          <span>{isOnline ? 'ออนไลน์' : 'ออฟไลน์'}</span>
+        <div className="composer" style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+          <div className="composer-input-group">
+            <input
+              type="text"
+              className="input-field"
+              placeholder={`พิมพ์ข้อความถึง ${partner.name}...`}
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+              maxLength={500}
+              disabled={isSending}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={handleSendMessage}
+              disabled={isSending || !newMessage.trim()}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="22" y1="2" x2="11" y2="13"/>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      <style>{`
-        .menu-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 16px;
-          margin: 16px 0;
-        }
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-        .menu-card {
+      <style>{`
+        .chat-container {
           display: flex;
           flex-direction: column;
+          height: calc(100vh - 180px);
+          min-height: 400px;
+        }
+
+        .messages-area {
+          flex: 1;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          padding: 8px 0;
+        }
+
+        .message {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          max-width: 85%;
+          animation: fadeIn .18s ease;
+        }
+
+        .message.own {
+          align-self: flex-end;
+          align-items: flex-end;
+        }
+
+        .message.other {
+          align-self: flex-start;
+          align-items: flex-start;
+        }
+
+        .message-bubble {
+          padding: 10px 14px;
+          border-radius: 16px;
+          border: 1px solid var(--border);
+          background: white;
+        }
+
+        .message.own .message-bubble {
+          background: var(--primary);
+          color: white;
+          border-color: var(--primary-strong);
+          border-bottom-right-radius: 4px;
+        }
+
+        .message.other .message-bubble {
+          background: white;
+          border-bottom-left-radius: 4px;
+        }
+
+        .message-meta {
+          font-size: 0.65rem;
+          color: var(--fg-muted);
+        }
+
+        .message.own .message-meta {
+          text-align: right;
+        }
+
+        .composer-input-group {
+          display: flex;
+          gap: 8px;
+        }
+
+        .composer-input-group .input-field {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .composer-input-group .btn {
+          flex-shrink: 0;
+        }
+
+        .empty-state {
+          display: flex;
+          flex: 1;
           align-items: center;
           justify-content: center;
-          padding: 20px 12px;
-          background: var(--surface);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border: 1px solid rgba(232,230,240,.9);
-          border-radius: var(--radius);
-          box-shadow: var(--shadow);
-          transition: all var(--transition);
-          text-decoration: none;
-          color: var(--fg);
-          min-height: 100px;
+          color: var(--fg-muted);
+          text-align: center;
         }
 
-        .menu-card:hover {
-          transform: translateY(-4px);
-          box-shadow: var(--shadow-strong);
-          border-color: var(--primary-strong);
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
         }
 
-        .menu-card:active { transform: scale(0.97); }
-        .menu-icon { font-size: 2rem; margin-bottom: 6px; }
-        .menu-title { font-size: 0.9rem; font-weight: 600; margin: 0; }
-        .menu-desc { font-size: 0.65rem; color: var(--fg-muted); margin: 2px 0 0; text-align: center; }
-
-        @media (max-width: 600px) {
-          .menu-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
-          .menu-card { padding: 16px 12px; min-height: 90px; }
-          .menu-icon { font-size: 1.8rem; }
+        @media (max-width: 480px) {
+          .chat-container {
+            height: calc(100vh - 160px);
+            min-height: 300px;
+          }
         }
       `}</style>
     </div>
